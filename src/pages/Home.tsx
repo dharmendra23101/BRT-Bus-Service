@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import RouteCard from "@/components/RouteCard";
-import heroBus from "@/assets/hero-bus.jpg";
+import heroBus from "@/assets/Raipur-Naya_Raipur_BRTS.png";
 import { Clock, MapPin, Shield, Zap } from "lucide-react";
 
 const rotatingTexts = [
