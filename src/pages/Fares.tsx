@@ -28,23 +28,32 @@ const Fares = () => {
 
       <Header />
 
-      <main className="py-10 px-4">
+      <main className="py-16 px-4">
 
         <div className="max-w-4xl mx-auto">
 
-          <h2 className="text-2xl font-bold mb-8 text-center">
-            Fare Structure
+          {/* Title */}
+          <h2 className="text-3xl md:text-4xl font-bold mb-10 text-center tracking-wide text-primary">
+            Fare Details
           </h2>
 
-          <div className="bg-white p-6 rounded shadow">
+          {/* Glass Card */}
+          <div className="bg-white/60 backdrop-blur-lg p-6 md:p-8 rounded-2xl shadow-xl border border-white/20">
 
             {fares.map((f, i) => (
               <div
                 key={i}
-                className="flex justify-between border-b py-3"
+                className="flex justify-between items-center px-4 py-4 rounded-lg transition-all duration-300 hover:bg-primary/10 hover:scale-[1.01] hover:shadow-md group"
               >
-                <span>{f.destination}</span>
-                <span className="font-bold">{f.price}</span>
+                {/* Destination */}
+                <span className="text-sm md:text-base text-gray-700 group-hover:text-primary transition">
+                  {f.destination}
+                </span>
+
+                {/* Price */}
+                <span className="font-semibold text-primary text-lg transition-transform duration-300 group-hover:scale-110">
+                  {f.price}
+                </span>
               </div>
             ))}
 
