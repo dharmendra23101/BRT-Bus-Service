@@ -33,11 +33,12 @@ const Header = () => {
 	const isActive = (path: string) => location.pathname === path;
 
 	const navLinks = [
-		{ to: "/", label: "Home", icon: MapPin },
-		{ to: "/map", label: "Live Map", icon: MapPin },
-		{ to: "/timetable", label: "Time Table", icon: Clock },
-		{ to: "/fares", label: "Bus Fares", icon: DollarSign },
-	];
+  { to: "/", label: "Home", icon: MapPin },
+  { to: "/map", label: "Live Map", icon: MapPin },
+  { to: "/timetable", label: "Time Table", icon: Clock },
+  { to: "/fares", label: "Bus Fares", icon: DollarSign },
+  { to: "/contact", label: "Contact Us", icon: User },   
+];
 
 	return (
 		<header
