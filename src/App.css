@@ -42,3 +42,26 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+body {
+  background: linear-gradient(135deg, #f5f3ff, #ede9fe);
+  font-family: 'Inter', sans-serif;
+}
+
+/* Smooth global transitions */
+* {
+  transition: all 0.2s ease-in-out;
+}
+
+/* Card style upgrade */
+.glass-card {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(12px);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Soft shadow */
+.soft-shadow {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+}
