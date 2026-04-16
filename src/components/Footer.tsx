@@ -5,7 +5,7 @@ interface FooterProps {
   text?: string;
 }
 
-const Footer = ({ text = "© 2027 Bus Services. All Rights Reserved." }: FooterProps) => {
+const Footer = ({ text = "© BRT Bus Services. All Rights Reserved." }: FooterProps) => {
   return (
     <footer className="bg-gradient-to-br from-[hsl(284,33%,36%)] to-[hsl(284,33%,28%)] text-primary-foreground mt-auto">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
