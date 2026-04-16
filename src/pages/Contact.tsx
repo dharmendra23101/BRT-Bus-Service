@@ -10,19 +10,19 @@ const navLinks = [
 const team = [
   {
     name: "Mukund Thakur",
-    role: "Team Leader & Developer",
+    role: "Team Leader & Developer(Frontend and Integration)",
     emails: ["mukund.th04@gmail.com", "mukund23101@iiitnr.edu.in"],
     phone: "93404 49412",
   },
   {
     name: "Dharmendra Dhruw",
-    role: "Developer",
+    role: "Developer(Backend)",
     emails: ["dharmendra23101@iiitnr.edu.in"],
     phone: "62686 93848",
   },
   {
     name: "Ayush Deep",
-    role: "Developer",
+    role: "Developer(ML)",
     emails: ["ayush23102@iiitnr.edu.in"],
     phone: "97700 98789",
   },
