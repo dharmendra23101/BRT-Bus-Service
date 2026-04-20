@@ -12,7 +12,7 @@ A production-grade smart bus transit web application combining real-time trackin
 ## 🌐 Live Deployment
 
 👉 **Live Here:**
-*https://brt-bus-service-2.vercel.app/*
+*https://bus-service-lyart.vercel.app/*
 
 ⚡ Optimized for modern cloud hosting environments
 
