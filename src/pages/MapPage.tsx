@@ -4,7 +4,6 @@ import { ref, onValue, off } from "firebase/database";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 
-// ✅ Type for bus
 type Bus = {
   lat: number;
   lng: number;
@@ -28,24 +27,18 @@ const MapPage = () => {
       setLoading(false);
     };
 
-    const handleError = (err: any) => {
-      console.error("FIREBASE ERROR:", err);
-      setLoading(false);
-    };
-
-    onValue(busRef, handleValue, handleError);
+    onValue(busRef, handleValue);
 
     return () => off(busRef, "value", handleValue);
   }, []);
 
-  // ✅ Convert to array safely
-  const busArray = Object.values(buses) as Bus[];
+  const busArray = Object.values(buses);
 
-  // ✅ Default center (Raipur)
+  // 🔥 default location
   let lat = 21.2514;
   let lng = 81.6296;
 
-  // ✅ Auto-center using all buses
+  // 🔥 auto-center (fix initial wrong position)
   if (busArray.length > 0) {
     const sumLat = busArray.reduce((acc, b) => acc + b.lat, 0);
     const sumLng = busArray.reduce((acc, b) => acc + b.lng, 0);
@@ -65,14 +58,20 @@ const MapPage = () => {
             Live Bus Tracking
           </h1>
 
-          {/* 🔥 SIMPLE MAP */}
-          <div className="w-full h-[400px] rounded-xl overflow-hidden shadow mb-8">
+          {/* 🔥 MAP */}
+          <div className="w-full h-[400px] rounded-xl overflow-hidden shadow mb-4 relative">
+            
             <iframe
               width="100%"
               height="100%"
               loading="lazy"
-              src={`https://www.openstreetmap.org/export/embed.html?bbox=${lng - 0.02},${lat - 0.02},${lng + 0.02},${lat + 0.02}&layer=mapnik&marker=${lat},${lng}`}
+              src={`https://www.openstreetmap.org/export/embed.html?bbox=${lng-0.02},${lat-0.02},${lng+0.02},${lat+0.02}&layer=mapnik&marker=${lat},${lng}`}
             />
+
+            {/* 🔥 Overlay info */}
+            <div className="absolute top-3 left-3 bg-white px-3 py-1 rounded shadow text-sm">
+              🚍 Active Buses: {busArray.length}
+            </div>
           </div>
 
           {/* 🔥 TABLE */}
