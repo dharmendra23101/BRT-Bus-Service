@@ -149,11 +149,22 @@ const TimetableTable = ({ caption, rows, onBook }: { caption: string; rows: stri
 const Timetable = () => {
   const { user, activeTicket } = useUser();
   const navigate = useNavigate();
+
   const [bookingOpen, setBookingOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
+
   const [selectedRow, setSelectedRow] = useState<string[]>([]);
   const [selectedDep, setSelectedDep] = useState("");
-  const [paymentData, setPaymentData] = useState({ from: "", to: "", fare: 0, dep: "", arr: "" });
+
+  // ✅ added bookingTime here
+  const [paymentData, setPaymentData] = useState({
+    from: "",
+    to: "",
+    fare: 0,
+    dep: "",
+    arr: "",
+    bookingTime: ""
+  });
 
   const handleBook = (row: string[], depTime: string) => {
     if (!user) {
@@ -161,17 +172,27 @@ const Timetable = () => {
       navigate("/login");
       return;
     }
+
     if (activeTicket) {
       alert("You already have an active ticket. Please wait for it to expire or check your dashboard.");
       return;
     }
+
     setSelectedRow(row);
     setSelectedDep(depTime);
     setBookingOpen(true);
   };
 
-  const handleProceedPayment = (from: string, to: string, fare: number, dep: string, arr: string) => {
-    setPaymentData({ from, to, fare, dep, arr });
+  // ✅ updated function (added bookingTime)
+  const handleProceedPayment = (
+    from: string,
+    to: string,
+    fare: number,
+    dep: string,
+    arr: string,
+    bookingTime: string
+  ) => {
+    setPaymentData({ from, to, fare, dep, arr, bookingTime });
     setBookingOpen(false);
     setPaymentOpen(true);
   };
@@ -181,8 +202,16 @@ const Timetable = () => {
       <Header title="Bus Time Table" navLinks={navLinks} />
 
       <main className="py-10 px-4">
-        <TimetableTable caption="BRT Service - HNLU to Raipur Railway Station (Weekdays)" rows={weekdayRows} onBook={handleBook} />
-        <TimetableTable caption="BRT Service – HNLU to Raipur Railway Station (Weekends)" rows={weekendRows} onBook={handleBook} />
+        <TimetableTable
+          caption="BRT Service - HNLU to Raipur Railway Station (Weekdays)"
+          rows={weekdayRows}
+          onBook={handleBook}
+        />
+        <TimetableTable
+          caption="BRT Service – HNLU to Raipur Railway Station (Weekends)"
+          rows={weekendRows}
+          onBook={handleBook}
+        />
       </main>
 
       <Footer />
@@ -204,6 +233,7 @@ const Timetable = () => {
         fare={paymentData.fare}
         departureTime={paymentData.dep}
         arrivalTime={paymentData.arr}
+        bookingTime={paymentData.bookingTime}   // ✅ added
         onSuccess={() => navigate("/dashboard")}
       />
     </div>

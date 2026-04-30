@@ -6,24 +6,63 @@ interface VirtualTicketProps {
   ticket: Ticket;
 }
 
+// ✅ ADDED: time parsing
+function parseTimeToDate(timeStr: string, baseDate: string) {
+  const [time, period] = timeStr.split(" ");
+  let [h, m] = time.split(":").map(Number);
+
+  if (period === "PM" && h !== 12) h += 12;
+  if (period === "AM" && h === 12) h = 0;
+
+  const d = new Date(baseDate);
+  d.setHours(h);
+  d.setMinutes(m);
+  d.setSeconds(0);
+
+  return d;
+}
+
+// ✅ ADDED: expiry = arrival + 15 min
+function getExpiryTime(arrival: string, bookingTime: string) {
+  const d = parseTimeToDate(arrival, bookingTime);
+  d.setMinutes(d.getMinutes() + 15);
+  return d;
+}
+
 const VirtualTicket = ({ ticket }: VirtualTicketProps) => {
   const [timeLeft, setTimeLeft] = useState("");
   const [isExpired, setIsExpired] = useState(ticket.status === "EXPIRED");
 
   useEffect(() => {
-    if (ticket.status !== "ACTIVE") { setIsExpired(true); return; }
+    if (ticket.status !== "ACTIVE") {
+      setIsExpired(true);
+      return;
+    }
+
     const update = () => {
       const now = new Date().getTime();
-      const exp = new Date(ticket.expiryTime).getTime();
+
+      // ✅ FIXED: compute expiry dynamically
+      const exp = getExpiryTime(ticket.arrivalTime, ticket.bookingTime).getTime();
+
       const diff = exp - now;
-      if (diff <= 0) { setIsExpired(true); setTimeLeft("Expired"); return; }
+
+      if (diff <= 0) {
+        setIsExpired(true);
+        setTimeLeft("Expired");
+        return;
+      }
+
       const h = Math.floor(diff / 3600000);
       const m = Math.floor((diff % 3600000) / 60000);
       const s = Math.floor((diff % 60000) / 1000);
+
       setTimeLeft(`${h}h ${m}m ${s}s`);
     };
+
     update();
     const iv = setInterval(update, 1000);
+
     return () => clearInterval(iv);
   }, [ticket]);
 
@@ -36,11 +75,13 @@ const VirtualTicket = ({ ticket }: VirtualTicketProps) => {
             <p className="text-xs uppercase tracking-widest opacity-80">BRT Bus Service</p>
             <p className="text-lg font-bold tracking-tight">Route {ticket.route}</p>
           </div>
-          <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-            isExpired
-              ? "bg-red-500/20 text-red-200"
-              : "bg-green-500/20 text-green-200"
-          }`}>
+          <span
+            className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+              isExpired
+                ? "bg-red-500/20 text-red-200"
+                : "bg-green-500/20 text-green-200"
+            }`}
+          >
             {isExpired ? "Expired" : "Active"}
           </span>
         </div>
@@ -81,7 +122,9 @@ const VirtualTicket = ({ ticket }: VirtualTicketProps) => {
         {!isExpired && (
           <div className="bg-secondary rounded-xl p-3 mb-5 text-center">
             <p className="text-xs text-muted-foreground mb-1">Valid for</p>
-            <p className="text-xl font-bold text-primary tabular-nums tracking-wider">{timeLeft}</p>
+            <p className="text-xl font-bold text-primary tabular-nums tracking-wider">
+              {timeLeft}
+            </p>
           </div>
         )}
 
@@ -90,7 +133,9 @@ const VirtualTicket = ({ ticket }: VirtualTicketProps) => {
           <div className="bg-white p-3 rounded-xl border border-border mb-2">
             <QRCodeSVG value={ticket.qrData} size={120} level="M" />
           </div>
-          <p className="text-[10px] text-muted-foreground font-mono">{ticket.ticketId}</p>
+          <p className="text-[10px] text-muted-foreground font-mono">
+            {ticket.ticketId}
+          </p>
         </div>
       </div>
     </div>

@@ -10,6 +10,7 @@ interface PaymentModalProps {
   fare: number;
   departureTime: string;
   arrivalTime: string;
+  bookingTime: string; // ✅ ADDED
   onSuccess: () => void;
 }
 
@@ -31,6 +32,7 @@ const PaymentModal = ({
   fare,
   departureTime,
   arrivalTime,
+  bookingTime, // ✅ ADDED
   onSuccess,
 }: PaymentModalProps) => {
   const { user } = useUser();
@@ -62,6 +64,7 @@ const PaymentModal = ({
       arrival: arrivalTime,
       fare,
       user: user.email,
+      bookingTime, // ✅ STORED (IMPORTANT)
     };
 
     localStorage.setItem("latestTicket", JSON.stringify(ticketData));
