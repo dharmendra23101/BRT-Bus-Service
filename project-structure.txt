@@ -1,0 +1,133 @@
+BRT-Bus-Service-2-main/
+├── .env
+├── .gitignore
+├── index.html
+├── package.json
+├── package-lock.json
+├── tsconfig.json
+├── tsconfig.app.json
+├── tsconfig.node.json
+├── vite.config.ts
+├── vitest.config.ts
+├── tailwind.config.ts
+├── postcss.config.js
+├── eslint.config.js
+├── components.json
+├── bun.lockb
+├── README.md
+├── project-structure.txt
+│
+├── node_modules/
+│
+├── public/
+│   └── robots.txt
+│
+└── src/
+    ├── main.tsx
+    ├── App.tsx
+    ├── App.css
+    ├── index.css
+    ├── firebase.ts
+    ├── vite-env.d.ts
+    │
+    ├── assets/
+    │   └── hero-bus.jpg
+    │
+    ├── components/
+    │   ├── ArrivalMonitor.tsx
+    │   ├── BookingModal.tsx
+    │   ├── ContactCard.tsx
+    │   ├── Footer.tsx
+    │   ├── Header.tsx
+    │   ├── NavLink.tsx
+    │   ├── NotificationPopup.tsx
+    │   ├── PaymentModal.tsx
+    │   ├── RouteCard.tsx
+    │   ├── VirtualTicket.tsx
+    │   └── ui/
+    │       ├── accordion.tsx
+    │       ├── alert-dialog.tsx
+    │       ├── alert.tsx
+    │       ├── aspect-ratio.tsx
+    │       ├── avatar.tsx
+    │       ├── badge.tsx
+    │       ├── breadcrumb.tsx
+    │       ├── button.tsx
+    │       ├── calendar.tsx
+    │       ├── card.tsx
+    │       ├── carousel.tsx
+    │       ├── chart.tsx
+    │       ├── checkbox.tsx
+    │       ├── collapsible.tsx
+    │       ├── command.tsx
+    │       ├── context-menu.tsx
+    │       ├── dialog.tsx
+    │       ├── drawer.tsx
+    │       ├── dropdown-menu.tsx
+    │       ├── form.tsx
+    │       ├── hover-card.tsx
+    │       ├── input-otp.tsx
+    │       ├── input.tsx
+    │       ├── label.tsx
+    │       ├── menubar.tsx
+    │       ├── navigation-menu.tsx
+    │       ├── pagination.tsx
+    │       ├── popover.tsx
+    │       ├── progress.tsx
+    │       ├── radio-group.tsx
+    │       ├── resizable.tsx
+    │       ├── scroll-area.tsx
+    │       ├── select.tsx
+    │       ├── separator.tsx
+    │       ├── sheet.tsx
+    │       ├── sidebar.tsx
+    │       ├── skeleton.tsx
+    │       ├── slider.tsx
+    │       ├── sonner.tsx
+    │       ├── switch.tsx
+    │       ├── table.tsx
+    │       ├── tabs.tsx
+    │       ├── textarea.tsx
+    │       ├── toast.tsx
+    │       ├── toaster.tsx
+    │       ├── toggle-group.tsx
+    │       ├── toggle.tsx
+    │       ├── tooltip.tsx
+    │       └── use-toast.ts
+    │
+    ├── contexts/
+    │   └── UserContext.tsx
+    │
+    ├── hooks/
+    │   ├── use-mobile.tsx
+    │   └── use-toast.ts
+    │
+    ├── lib/
+    │   └── utils.ts
+    │
+    ├── pages/
+    │   ├── Contact.tsx
+    │   ├── Dashboard.tsx
+    │   ├── Driver.tsx
+    │   ├── Fares.tsx
+    │   ├── Home.tsx
+    │   ├── Index.tsx
+    │   ├── Login.tsx
+    │   ├── MapPage.tsx
+    │   ├── NotFound.tsx
+    │   └── Timetable.tsx
+    │
+    └── types/
+        └── ticket.ts
+    │
+    └── pages/
+        ├── Index.tsx
+        ├── Home.tsx
+        ├── Login.tsx
+        ├── Dashboard.tsx
+        ├── Driver.tsx
+        ├── Fares.tsx
+        ├── Timetable.tsx
+        ├── MapPage.tsx
+        ├── Contact.tsx
+        └── NotFound.tsx
