@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { STOPS_IN_ORDER, calculateFare } from "@/types/ticket";
+import { STOPS, calculateFare } from "@/types/ticket";
 
 interface BookingModalProps {
   open: boolean;
@@ -16,9 +16,9 @@ const BookingModal = ({ open, onClose, departureTime, onProceedPayment, rowData,
 
   if (!open) return null;
 
-  const fromIdx = STOPS_IN_ORDER.indexOf(fromStop);
+  const fromIdx = STOPS.indexOf(fromStop);
 
-  const availableTo = fromIdx >= 0 ? STOPS_IN_ORDER.slice(fromIdx + 1) : [];
+  const availableTo = fromIdx >= 0 ? STOPS.slice(fromIdx + 1) : [];
 
   const fare = toStop ? calculateFare(fromStop, toStop) : 0;
 
@@ -41,7 +41,7 @@ const BookingModal = ({ open, onClose, departureTime, onProceedPayment, rowData,
           onChange={e => { setFromStop(e.target.value); setToStop(""); }}
           className="brt-input mb-4"
         >
-          {STOPS_IN_ORDER.map(s => (
+          {STOPS.map(s => (
             <option key={s} value={s}>{s}</option>
           ))}
         </select>
