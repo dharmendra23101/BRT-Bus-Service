@@ -735,13 +735,11 @@ export const subscribeToVehicleStatus = (
 /* ============================================================
    STOP PUBLISHING
    ============================================================ */
-
 export const stopPublishing = async (
   actor: Actor | null,
   vehicleId: string,
-  routeId: RouteId
+  _routeId: RouteId
 ): Promise<void> => {
-
   if (
     !actor ||
     !isVehicleId(vehicleId)
@@ -749,27 +747,18 @@ export const stopPublishing = async (
     return;
   }
 
-
   const {
     ref,
     remove,
-    serverTimestamp,
-    set,
     rtdb,
   } = await database();
-
 
   if (!rtdb) {
     return;
   }
 
-
   /*
-   * IMPORTANT:
-   *
-   * Remove the same node used by publishLocation:
-   *
-   * busLocations/{actor.uid}
+   * Remove this driver's live location.
    */
   await remove(
     ref(
@@ -777,33 +766,7 @@ export const stopPublishing = async (
       `busLocations/${actor.uid}`
     )
   );
-
-
-  /*
-   * Preserve existing vehicle-status functionality.
-   */
-  try {
-
-    await set(
-      ref(
-        rtdb,
-        `${REMOTE_PATHS.VEHICLE_STATUS}/${vehicleId}`
-      ),
-      {
-        lastSeenAt:
-          serverTimestamp(),
-      }
-    );
-
-  } catch (error) {
-
-    console.error(
-      "Could not record this vehicle's last report:",
-      error
-    );
-  }
 };
-
 
 /* ============================================================
    LIVE BUS SUBSCRIPTION
