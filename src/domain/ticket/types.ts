@@ -41,6 +41,13 @@ export interface Ticket {
   expiresAt: string;
   status: TicketStatus;
   paymentStatus: PaymentStatus;
+  /**
+   * What the passenger quotes when asking about the payment.
+   *
+   * Absent until a provider has accepted one - which is also how a ticket
+   * built before payment is distinguishable from one that was paid for.
+   */
+  paymentReference?: string;
   /** Serialized QR payload; see `factory.ts`. */
   qrData: string;
   validationToken: string;

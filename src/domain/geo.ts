@@ -1,11 +1,17 @@
 /**
  * Geographic helpers for live bus tracking.
  *
- * Extracted from ArrivalMonitor so distance and ETA maths are testable
- * without mounting a component or connecting to the Realtime Database.
+ * Extracted from ArrivalMonitor so distance maths is testable without
+ * mounting a component or connecting to the Realtime Database.
+ *
+ * Straight-line distance only. There was once an `etaBetween` here that
+ * divided this by an assumed average speed to produce an arrival time in
+ * minutes; it was removed because the result rose as a bus got closer -
+ * distance to the terminus increases along the corridor - so no choice of
+ * speed could make it correct. An arrival time needs route geometry, a
+ * position projected onto it, and the schedule to compare against.
  */
 
-import { ARRIVAL_RULES } from "@/constants/config";
 import type { Coordinate } from "./transit/stops";
 
 const EARTH_RADIUS_KM = 6371;
@@ -25,11 +31,3 @@ export const haversineKm = (from: Coordinate, to: Coordinate): number => {
 
   return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
-
-/** Whole minutes to cover a distance at the assumed average bus speed. */
-export const estimateEtaMinutes = (distanceKm: number): number =>
-  Math.round((distanceKm / ARRIVAL_RULES.AVERAGE_SPEED_KMPH) * 60);
-
-/** Minutes until a bus at `from` reaches `to`. */
-export const etaBetween = (from: Coordinate, to: Coordinate): number =>
-  estimateEtaMinutes(haversineKm(from, to));

@@ -15,6 +15,7 @@ import { MemoryRouter, Route, Routes, type Location } from "react-router-dom";
 import { LiveAnnouncer } from "@/components/a11y/LiveAnnouncer";
 import { NotificationProvider } from "@/components/NotificationPopup";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { LocaleProvider } from "@/contexts/LocaleContext";
 import { TicketProvider } from "@/contexts/TicketContext";
 
 interface ProviderOptions extends Omit<RenderOptions, "wrapper"> {
@@ -28,7 +29,8 @@ const AllProviders =
   (route: string | Partial<Location>, path?: string) =>
   ({ children }: { children: ReactNode }) => (
     <MemoryRouter initialEntries={[route]}>
-      <AuthProvider>
+      <LocaleProvider>
+        <AuthProvider>
         <TicketProvider>
           <LiveAnnouncer>
             <NotificationProvider>
@@ -42,7 +44,8 @@ const AllProviders =
             </NotificationProvider>
           </LiveAnnouncer>
         </TicketProvider>
-      </AuthProvider>
+        </AuthProvider>
+      </LocaleProvider>
     </MemoryRouter>
   );
 

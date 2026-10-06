@@ -1,9 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
 import DriverDashboard from "@/components/dashboards/DriverDashboard";
-import { toBusId } from "@/services/locationService";
+import { subscribeToAssignment } from "@/services/locationService";
 import { renderWithProviders, screen } from "../helpers/render";
 import { makeUser, signInAs } from "../helpers/firebase";
 import { setMockRole } from "../helpers/userService";
+
+vi.mock("@/services/locationService", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/services/locationService")>()),
+  subscribeToAssignment: vi.fn(() => () => {}),
+}));
+
+const VEHICLE = "fixture-a";
+
+/** Reports an assignment to whatever the card subscribed with. */
+const assign = (vehicleId: string | null) => {
+  vi.mocked(subscribeToAssignment).mockImplementation((_uid, onAssignment) => {
+    onAssignment(vehicleId);
+
+    return () => {};
+  });
+};
 
 vi.mock("@/services/userService", async () => {
   const helper = await import("../helpers/userService");
@@ -47,11 +63,28 @@ describe("a driver arriving at their dashboard", () => {
   });
 
   it("names the vehicle passengers will see, not the account", async () => {
+    assign(VEHICLE);
+
     renderWithProviders(<DriverDashboard />, { route: "/dashboard" });
     asDriver();
 
-    expect(await screen.findByText(toBusId("driver-9"))).toBeInTheDocument();
+    expect(await screen.findByText(VEHICLE)).toBeInTheDocument();
     expect(screen.queryByText("driver-9")).not.toBeInTheDocument();
+  });
+
+  /*
+    Promising a driver that passengers can see their bus, while no bus is
+    assigned, would be a claim about something that is not happening.
+  */
+  it("says nothing is shared when no bus is assigned", async () => {
+    assign(null);
+
+    renderWithProviders(<DriverDashboard />, { route: "/dashboard" });
+    asDriver();
+
+    expect(
+      await screen.findByText(/No bus is assigned to you right now/i)
+    ).toBeInTheDocument();
   });
 });
 
@@ -86,10 +119,12 @@ describe("reaching live tracking from the dashboard", () => {
 
 describe("what the dashboard claims to know", () => {
   it("makes no claim the app cannot stand behind", async () => {
+    assign(VEHICLE);
+
     renderWithProviders(<DriverDashboard />, { route: "/dashboard" });
     asDriver();
 
-    await screen.findByText(toBusId("driver-9"));
+    await screen.findByText(VEHICLE);
 
     expect(screen.queryByText("Status")).not.toBeInTheDocument();
     expect(screen.queryByText(/Offline/)).not.toBeInTheDocument();

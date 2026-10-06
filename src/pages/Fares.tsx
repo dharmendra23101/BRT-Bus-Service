@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useTranslation } from "@/contexts/LocaleContext";
+import type { TranslationKey } from "@/domain/i18n/strings";
 import { Link } from "react-router-dom";
 import { ArrowRight, Download, ExternalLink, FileText } from "lucide-react";
 import Header from "@/components/Header";
@@ -16,12 +18,12 @@ const POPULAR: ReadonlyArray<readonly [StopName, StopName]> = [
   ["HNLU", "Raipur Railway Station"],
 ];
 
-const FARE_NOTES: readonly string[] = [
-  "Fares follow the official Tatpar BRTS fare chart for Nava Raipur Atal Nagar.",
-  "The price depends on the stop you board at and the stop you alight at, not on distance travelled inside the bus.",
-  "The same fare applies in both directions between any two stops.",
-  "Where the official chart publishes no fare for a pair, the journey cannot be booked.",
-];
+const FARE_NOTE_KEYS = [
+  "fares.note.1",
+  "fares.note.2",
+  "fares.note.3",
+  "fares.note.4",
+] as const satisfies readonly TranslationKey[];
 
 const resolveStop = (value: string): StopName | null => {
   const trimmed = value.trim();
@@ -44,6 +46,8 @@ const formatDestinations = (stops: readonly string[]): string => {
 };
 
 const Fares = () => {
+  const { t } = useTranslation();
+
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
@@ -68,18 +72,17 @@ const Fares = () => {
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-10 animate-fade-in-up">
             <h1 className="text-3xl md:text-4xl font-bold text-primary tracking-tight">
-              Official fare information
+              {t("fares.title")}
             </h1>
             <p className="mt-3 text-muted-foreground max-w-2xl mx-auto">
-              Travel confidently using the official BRTS fare structure. Check
-              the fare between any two stops, or read the full chart.
+{t("fares.intro")}
             </p>
           </div>
 
           <div className="brt-search-card animate-fade-in-up animate-stagger-1">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <StopField
-                label="From"
+                label={t("fares.from")}
                 value={from}
                 onChange={setFrom}
                 exclude={destination ?? ""}
@@ -95,7 +98,7 @@ const Fares = () => {
             <div aria-live="polite" className="mt-6">
               {sameStop && (
                 <p className="text-sm text-destructive font-medium">
-                  Choose two different stops.
+                  {t("fares.sameStop")}
                 </p>
               )}
 
@@ -112,7 +115,7 @@ const Fares = () => {
                     </div>
 
                     <p className="text-3xl font-bold text-primary">
-                      {fare === null ? "Not published" : `₹${fare}/-`}
+                      {fare === null ? t("fares.notPublished") : `₹${fare}/-`}
                     </p>
                   </div>
 
@@ -121,14 +124,13 @@ const Fares = () => {
                       to={`/plan?from=${encodeURIComponent(origin)}&to=${encodeURIComponent(destination)}`}
                       className="brt-button inline-block mt-4 touch-target"
                     >
-                      Find departures and book
+                      {t("fares.findDepartures")}
                     </Link>
                   )}
 
                   {fare === null && (
                     <p className="text-sm text-destructive font-medium mt-3">
-                      The official chart does not publish a fare for this
-                      journey, so it cannot be booked yet.
+{t("fares.noFare")}
                     </p>
                   )}
                 </div>
@@ -138,7 +140,7 @@ const Fares = () => {
 
           <section className="mt-12" aria-labelledby="popular-heading">
             <h2 id="popular-heading" className="brt-section-title text-primary">
-              Popular journeys
+              {t("fares.popular")}
             </h2>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -198,7 +200,7 @@ const Fares = () => {
 
           <section className="mt-12" aria-labelledby="chart-heading">
             <h2 id="chart-heading" className="brt-section-title text-primary">
-              Official fare chart
+              {t("fares.chart")}
             </h2>
 
             <div className="brt-card">
@@ -210,23 +212,23 @@ const Fares = () => {
                   className="brt-button inline-flex items-center gap-2 touch-target"
                 >
                   <ExternalLink className="w-4 h-4" aria-hidden="true" />
-                  Open full screen
+                  {t("fares.openFullScreen")}
                 </a>
 
                 <a
                   href={FARE_CHART_URL}
                   download
-                  className="px-6 py-3 rounded-xl border border-border text-foreground font-medium transition-all duration-300 hover:bg-secondary inline-flex items-center gap-2 touch-target"
+                  className="px-6 py-3 rounded-xl border border-border text-foreground font-medium transition-colors duration-state hover:bg-secondary inline-flex items-center gap-2 touch-target"
                 >
                   <Download className="w-4 h-4" aria-hidden="true" />
-                  Download
+                  {t("fares.download")}
                 </a>
               </div>
 
               <object
                 data={FARE_CHART_URL}
                 type="application/pdf"
-                title="Official Tatpar BRTS fare chart"
+                title={t("fares.chartTitle")}
                 className="w-full h-[420px] md:h-[560px] rounded-xl border border-border"
               >
                 <div className="p-6 text-center">
@@ -235,14 +237,14 @@ const Fares = () => {
                     aria-hidden="true"
                   />
                   <p className="text-sm text-muted-foreground">
-                    Your browser cannot display the fare chart inline.{" "}
+                    {t("fares.cannotDisplay")}{" "}
                     <a
                       href={FARE_CHART_URL}
                       target="_blank"
                       rel="noreferrer"
                       className="text-primary font-semibold underline underline-offset-2"
                     >
-                      Open it in a new tab
+                      {t("fares.openNewTab")}
                     </a>
                     .
                   </p>
@@ -253,17 +255,17 @@ const Fares = () => {
 
           <section className="mt-12" aria-labelledby="notes-heading">
             <h2 id="notes-heading" className="brt-section-title text-primary">
-              Fare information
+              {t("fares.notes")}
             </h2>
 
             <div className="brt-container">
               <ul className="space-y-3">
-                {FARE_NOTES.map((note) => (
+                {FARE_NOTE_KEYS.map((note) => (
                   <li
                     key={note}
                     className="text-sm text-muted-foreground leading-relaxed pl-4 border-l-2 border-primary/30"
                   >
-                    {note}
+                    {t(note)}
                   </li>
                 ))}
               </ul>

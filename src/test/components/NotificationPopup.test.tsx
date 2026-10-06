@@ -17,11 +17,11 @@ vi.mock("@/services/userService", async () => {
   return helper.userServiceMock();
 });
 
-const AlertTrigger = ({ stop = "HNLU", eta = 3 }: { stop?: string; eta?: number }) => {
+const AlertTrigger = ({ stop = "HNLU" }: { stop?: string }) => {
   const { notify } = useNotification();
 
   return (
-    <button type="button" onClick={() => notify("101", stop, eta)}>
+    <button type="button" onClick={() => notify("101", stop)}>
       Raise alert
     </button>
   );
@@ -42,14 +42,14 @@ afterEach(() => {
 });
 
 describe("telling a passenger their bus is close", () => {
-  it("shows the route, the stop and the estimate", async () => {
+  it("shows the route and the stop, and no arrival time", async () => {
     const { user } = renderWithProviders(<AlertTrigger />);
 
     await user.click(screen.getByRole("button", { name: "Raise alert" }));
 
     expect(await screen.findByText("Bus 101")).toBeInTheDocument();
     expect(screen.getByText("HNLU")).toBeInTheDocument();
-    expect(screen.getByText(/In approx 3 minutes/)).toBeInTheDocument();
+    expect(screen.getByText(/not an arrival time/i)).toBeInTheDocument();
   });
 
   it("speaks the alert once through the shared live region", async () => {
@@ -58,7 +58,7 @@ describe("telling a passenger their bus is close", () => {
     await user.click(screen.getByRole("button", { name: "Raise alert" }));
 
     const spoken = await screen.findAllByText(
-      /Bus 101 arriving at HNLU in about 3 minutes/
+      /Bus 101 is reporting its position near HNLU/
     );
 
     expect(spoken).toHaveLength(1);
@@ -138,7 +138,32 @@ describe("raising a browser notification", () => {
     await screen.findByText("Bus 101");
 
     expect(notificationApi().mock.calls).toHaveLength(1);
-    expect(notificationApi().mock.calls[0]![0]).toBe("Bus Arrival Alert");
+    expect(notificationApi().mock.calls[0]![0]).toBe("Bus nearby");
+  });
+
+  /*
+    The icon used to be hotlinked from a stock-icon CDN. Every arrival alert
+    therefore told a third party that this person had just been notified, and
+    the request could never be cached - the service worker only touches
+    same-origin - so an alert raised with no connection showed no icon at all,
+    which is exactly when an arrival alert matters most.
+
+    Asserted as first-party rather than as one specific filename, so swapping
+    the artwork does not fail this, and reaching for a CDN again does.
+  */
+  it("draws its icon from this origin, never a third party", async () => {
+    notificationApi().permission = "granted";
+
+    const { user } = renderWithProviders(<AlertTrigger />);
+
+    await user.click(screen.getByRole("button", { name: "Raise alert" }));
+    await screen.findByText("Bus 101");
+
+    const options = notificationApi().mock.calls[0]![1] as { icon?: string };
+
+    expect(options.icon).toBeDefined();
+    expect(options.icon).toMatch(/^\//);
+    expect(options.icon).not.toMatch(/^https?:/);
   });
 
   it("does not when permission has never been given", async () => {

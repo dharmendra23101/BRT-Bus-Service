@@ -13,6 +13,7 @@ import { PAYMENT_CONFIG } from "@/constants/config";
 import { calculateFare } from "@/domain/transit/fares";
 import { getCallTime, getTripStops } from "@/domain/transit/schedule";
 import type { JourneySelection } from "@/domain/ticket/types";
+import { demoPaymentProvider } from "@/services/payment/demoProvider";
 import { loadTickets } from "@/services/ticketService";
 import { act, renderWithProviders, screen, waitFor } from "../helpers/render";
 import { firstWeekdayTrip, makeUpcomingTicket, seedStoredTickets } from "../helpers/factories";
@@ -75,7 +76,7 @@ const settlePayment = async () => {
 };
 
 const pay = async (user: ReturnType<typeof renderModal>["user"]) => {
-  await user.click(screen.getByRole("button", { name: /simulate payment/i }));
+  await user.click(screen.getByRole("button", { name: /demonstration ticket/i }));
   await settlePayment();
 };
 
@@ -86,19 +87,62 @@ describe("what the passenger is asked to pay", () => {
 
     expect(screen.getByText(`₹${selection.fare}/-`)).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: `Simulate payment of ₹${selection.fare}` })
+      screen.getByRole("button", { name: `Issue a demonstration ticket for ₹${selection.fare}` })
     ).toBeInTheDocument();
   });
 
-  it("offers a QR code for the amount actually due", () => {
+  /*
+    The defect this replaced: a scannable QR encoding a real upi:// intent
+    with a payee nobody owns. A demonstration must carry no payment target a
+    passenger could act on.
+  */
+  it("offers no scannable payment target at all", () => {
+    const { container } = renderModal({ selection: journey() });
+
+    expect(container.querySelector("svg[height][width]")).toBeNull();
+    expect(container.innerHTML).not.toContain("upi://");
+  });
+
+  it("says plainly that no payment will be taken", () => {
+    renderModal({ selection: journey() });
+
+    expect(screen.getByText(/no payment will be taken/i)).toBeInTheDocument();
+  });
+});
+
+/*
+  Regression for the ordering defect. Booking rules used to run AFTER the
+  payment resolved, so an overlapping ticket meant the passenger was charged
+  and then refused. The provider must not be reached at all.
+*/
+describe("refusing a journey before any money moves", () => {
+  it("does not call the payment provider when the journey is already held", async () => {
+    const pay = vi.spyOn(demoPaymentProvider, "pay");
     const selection = journey();
-    renderModal({ selection });
+
+    signInAs(makeUser({ uid: "user-1" }));
+    seedStoredTickets("user-1", [
+      makeUpcomingTicket({
+        userId: "user-1",
+        fromStop: selection.fromStop,
+        toStop: selection.toStop,
+        departureTime: selection.departureTime,
+        arrivalTime: selection.arrivalTime,
+      }),
+    ]);
+
+    const { user } = renderModal({ selection });
+
+    await user.click(
+      await screen.findByRole("button", { name: /demonstration ticket/i })
+    );
 
     expect(
-      screen.getByRole("img", {
-        name: `UPI payment QR code for ${selection.fare} rupees`,
-      })
+      await screen.findByRole("heading", { name: /payment failed/i })
     ).toBeInTheDocument();
+    expect(pay).not.toHaveBeenCalled();
+
+    pay.mockRestore();
   });
 });
 
@@ -107,7 +151,7 @@ describe("paying for a journey", () => {
     const { user } = renderModal();
     signInAs(makeUser({ uid: "user-1" }));
 
-    await screen.findByRole("button", { name: /simulate payment/i });
+    await screen.findByRole("button", { name: /demonstration ticket/i });
     await pay(user);
 
     expect(
@@ -120,7 +164,7 @@ describe("paying for a journey", () => {
     const { user } = renderModal({ selection });
     signInAs(makeUser({ uid: "user-1" }));
 
-    await screen.findByRole("button", { name: /simulate payment/i });
+    await screen.findByRole("button", { name: /demonstration ticket/i });
     await pay(user);
 
     await screen.findByRole("heading", { name: "Payment successful" });
@@ -139,7 +183,7 @@ describe("paying for a journey", () => {
     const { user, onSuccess, onClose } = renderModal();
     signInAs(makeUser({ uid: "user-1" }));
 
-    await screen.findByRole("button", { name: /simulate payment/i });
+    await screen.findByRole("button", { name: /demonstration ticket/i });
     await pay(user);
 
     await user.click(await screen.findByRole("button", { name: "View my ticket" }));
@@ -152,7 +196,7 @@ describe("paying for a journey", () => {
     const { user } = renderModal();
     signInAs(makeUser({ uid: "user-1" }));
 
-    await screen.findByRole("button", { name: /simulate payment/i });
+    await screen.findByRole("button", { name: /demonstration ticket/i });
     await pay(user);
 
     await waitFor(() =>
@@ -165,7 +209,7 @@ describe("a payment that cannot go through", () => {
   it("refuses to charge a visitor who is not signed in", async () => {
     const { user } = renderModal();
 
-    await user.click(screen.getByRole("button", { name: /simulate payment/i }));
+    await user.click(screen.getByRole("button", { name: /demonstration ticket/i }));
 
     expect(
       await screen.findByRole("heading", { name: "Payment failed" })
@@ -189,7 +233,7 @@ describe("a payment that cannot go through", () => {
     const { user } = renderModal({ selection });
     signInAs(makeUser({ uid: "user-1" }));
 
-    await screen.findByRole("button", { name: /simulate payment/i });
+    await screen.findByRole("button", { name: /demonstration ticket/i });
     await pay(user);
 
     expect(
@@ -202,20 +246,20 @@ describe("a payment that cannot go through", () => {
   it("lets the passenger try again rather than trapping them", async () => {
     const { user } = renderModal();
 
-    await user.click(screen.getByRole("button", { name: /simulate payment/i }));
+    await user.click(screen.getByRole("button", { name: /demonstration ticket/i }));
     await screen.findByRole("heading", { name: "Payment failed" });
 
     await user.click(screen.getByRole("button", { name: "Try again" }));
 
     expect(
-      screen.getByRole("button", { name: /simulate payment/i })
+      screen.getByRole("button", { name: /demonstration ticket/i })
     ).toBeInTheDocument();
   });
 });
 
 describe("a payment already in flight", () => {
   const startPaying = async (user: ReturnType<typeof renderModal>["user"]) => {
-    await user.click(screen.getByRole("button", { name: /simulate payment/i }));
+    await user.click(screen.getByRole("button", { name: /demonstration ticket/i }));
     await screen.findByRole("heading", { name: "Processing payment" });
   };
 
@@ -232,7 +276,7 @@ describe("a payment already in flight", () => {
     const { user } = renderModal();
     signInAs(makeUser({ uid: "user-1" }));
 
-    await screen.findByRole("button", { name: /simulate payment/i });
+    await screen.findByRole("button", { name: /demonstration ticket/i });
     await startPaying(user);
 
     expect(screen.queryByRole("button", { name: /close/i })).not.toBeInTheDocument();
@@ -245,7 +289,7 @@ describe("reopening the dialog", () => {
   it("starts a fresh payment rather than showing the last outcome", async () => {
     const { user, rerender } = renderModal();
 
-    await user.click(screen.getByRole("button", { name: /simulate payment/i }));
+    await user.click(screen.getByRole("button", { name: /demonstration ticket/i }));
     await screen.findByRole("heading", { name: "Payment failed" });
 
     rerender(
@@ -262,7 +306,7 @@ describe("reopening the dialog", () => {
     );
 
     expect(
-      await screen.findByRole("button", { name: /simulate payment/i })
+      await screen.findByRole("button", { name: /demonstration ticket/i })
     ).toBeInTheDocument();
   });
 });

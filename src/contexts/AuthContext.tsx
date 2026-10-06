@@ -37,6 +37,8 @@ import {
 import { auth, googleProvider } from "@/firebase";
 import { toAuthMessage, toResetMessage } from "@/domain/auth/errors";
 import { signInSchema, signUpSchema } from "@/domain/validation/schemas";
+import { isTranslationKey } from "@/domain/i18n/strings";
+import type { TranslationKey } from "@/domain/i18n/en";
 import {
   createUserRecord,
   ensureUserRecord,
@@ -53,10 +55,10 @@ interface AuthContextValue {
   loading: boolean;
   /** Identity to pass to services performing privileged operations. */
   actor: Actor | null;
-  signUp: (name: string, email: string, password: string) => Promise<string | null>;
-  signIn: (email: string, password: string) => Promise<string | null>;
-  signInWithGoogle: () => Promise<string | null>;
-  resetPassword: (email: string) => Promise<string | null>;
+  signUp: (name: string, email: string, password: string) => Promise<TranslationKey | null>;
+  signIn: (email: string, password: string) => Promise<TranslationKey | null>;
+  signInWithGoogle: () => Promise<TranslationKey | null>;
+  resetPassword: (email: string) => Promise<TranslationKey | null>;
   logout: () => Promise<void>;
   /**
    * Re-reads the signed-in user's record and republishes role and profile.
@@ -133,11 +135,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const signUp = useCallback(
-    async (name: string, email: string, password: string): Promise<string | null> => {
+    async (name: string, email: string, password: string): Promise<TranslationKey | null> => {
       const parsed = signUpSchema.safeParse({ name, email, password });
 
       if (!parsed.success) {
-        return parsed.error.issues[0]?.message ?? "Please check your details.";
+        const issue = parsed.error.issues[0]?.message;
+
+        return isTranslationKey(issue) ? issue : "validation.generic";
       }
 
       try {
@@ -165,12 +169,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   );
 
   const signIn = useCallback(
-    async (email: string, password: string): Promise<string | null> => {
+    async (email: string, password: string): Promise<TranslationKey | null> => {
       const parsed = signInSchema.safeParse({ email, password });
 
       // A malformed local value is reported as a credential failure so the
       // form cannot be used to probe which addresses are registered.
-      if (!parsed.success) return "Incorrect email or password.";
+      if (!parsed.success) return "auth.error.credentials";
 
       try {
         await signInWithEmailAndPassword(auth, parsed.data.email, parsed.data.password);
@@ -182,7 +186,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     []
   );
 
-  const signInWithGoogle = useCallback(async (): Promise<string | null> => {
+  const signInWithGoogle = useCallback(async (): Promise<TranslationKey | null> => {
     try {
       await signInWithPopup(auth, googleProvider);
       return null;
@@ -192,7 +196,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const resetPassword = useCallback(
-    async (email: string): Promise<string | null> => {
+    async (email: string): Promise<TranslationKey | null> => {
       try {
         await sendPasswordResetEmail(auth, email);
         return null;

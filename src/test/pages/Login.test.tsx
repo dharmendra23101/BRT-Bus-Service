@@ -193,9 +193,18 @@ describe("recovering a forgotten password", () => {
     await user.type(screen.getByLabelText(/^Email/), "rider@example.com");
     await user.click(screen.getByRole("button", { name: "Send reset link" }));
 
-    expect(await screen.findByText(/reset link is on its way/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/if an account exists for/i)
+    ).toBeInTheDocument();
   });
 
+  /*
+    Match the visible paragraph, not the phrase it shares with the spoken
+    announcement. Both say "reset link is on its way", so a query on that
+    substring matches one node or two depending on where LiveAnnouncer is in
+    its clear-then-set cycle - which made this suite fail about one run in
+    three, on a different test each time.
+  */
   it("says the same thing when the address has no account", async () => {
     const { user } = renderWithProviders(<Login />, { route: "/login" });
 
@@ -205,7 +214,9 @@ describe("recovering a forgotten password", () => {
     queueAuthError("auth/user-not-found");
     await user.click(screen.getByRole("button", { name: "Send reset link" }));
 
-    expect(await screen.findByText(/reset link is on its way/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/if an account exists for/i)
+    ).toBeInTheDocument();
   });
 
   it("refuses an address that is not an address", async () => {
@@ -255,6 +266,8 @@ describe("recovering a forgotten password", () => {
     await user.type(screen.getByLabelText(/^Email/), "rider@example.com");
     await user.click(screen.getByRole("button", { name: "Send reset link" }));
 
-    expect(await screen.findByText(/reset link is on its way/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/if an account exists for/i)
+    ).toBeInTheDocument();
   });
 });

@@ -42,8 +42,16 @@ service cloud.firestore {
     }
 
     // Fields a user is allowed to author on their own profile.
+    //
+    // `email` is deliberately NOT here. It is identity provenance: it is
+    // written once at registration from the verified auth token, it is what
+    // an administrator reads when identifying an account, and it is carried
+    // onto every ticket. A profile that can rewrite it lets any account
+    // present itself to the admin roster as somebody else. Nothing in the
+    // application has ever written it after creation, so excluding it costs
+    // nothing - it was in this list by oversight, and the emulator caught it.
     function selfWritableKeys() {
-      return ['name', 'email', 'photoURL', 'notifications_enabled', 'updatedAt'];
+      return ['name', 'photoURL', 'notifications_enabled', 'updatedAt'];
     }
 
     // ---- users ---------------------------------------------------------
@@ -150,6 +158,46 @@ service cloud.firestore {
         && request.resource.data.active is bool;
 
       allow delete: if isAdmin();
+    }
+
+    // ---- audit log -----------------------------------------------------
+    //
+    // Who changed a role, and who published words that passengers read as
+    // fact. Both are administrative acts with no other record: `users` keeps
+    // only the current role, and an edited announcement overwrites the one
+    // before it, so without this the question "who did this, and when?" has
+    // no answer at all.
+    //
+    // Append-only, and the two fields that make it worth having are pinned to
+    // values the client cannot choose. `actorUid` must equal the caller, so
+    // an entry cannot be attributed to somebody else; `at` must equal the
+    // server's own clock, so a record cannot be backdated into a shift nobody
+    // was working. An audit trail an actor can author freely is not evidence.
+    //
+    // Volume is small - a few hundred writes a day against a 20,000/day free
+    // allowance - so this costs nothing at this scale.
+
+    match /auditLog/{entryId} {
+      // Only an administrator can read it, and only the whole record.
+      allow get, list: if isAdmin();
+
+      allow create: if isAdmin()
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.at == request.time
+        && request.resource.data.action is string
+        && request.resource.data.action.size() > 0
+        && request.resource.data.action.size() <= 64
+        && request.resource.data.subject is string
+        && request.resource.data.subject.size() <= 128
+        && request.resource.data.detail is string
+        && request.resource.data.detail.size() <= 512
+        && request.resource.data.keys().hasOnly(
+             ['actorUid', 'at', 'action', 'subject', 'detail']
+           );
+
+      // The point of the record is that it cannot be rewritten afterwards.
+      // An administrator who can edit the log is an administrator with no log.
+      allow update, delete: if false;
     }
 
     // ---- deny by default -----------------------------------------------

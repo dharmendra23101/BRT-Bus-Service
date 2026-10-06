@@ -11,6 +11,15 @@
     -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 
+    <!--
+      Installability. iOS ignores the manifest's icons and reads this link
+      instead, so the PNG is not redundant with the entries in the manifest.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="BRT" />
+
     <!-- Open the Firebase Auth connection while the bundle is still parsing. -->
     <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin />
     <link rel="dns-prefetch" href="https://firestore.googleapis.com" />
@@ -21,7 +30,7 @@
       name="description"
       content="Plan a journey, check official BRTS fares, browse every route and track buses live on the Raipur to Naya Raipur corridor."
     />
-    <meta name="theme-color" content="#874f9c" />
+    <meta name="theme-color" content="#B83E2E" />
     <link rel="canonical" href="https://bus-service-lyart.vercel.app/" />
 
     <!--

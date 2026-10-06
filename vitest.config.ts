@@ -12,6 +12,14 @@ export default defineConfig({
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
 
     /*
+      The bundle budget reads `dist/`, so it can only run after a build. It
+      has its own config and its own gate rather than being skipped when the
+      directory is absent - a size guard that quietly skips is a size guard
+      that is not running.
+    */
+    exclude: ["src/test/bundle/**", "src/test/rules/**", "**/node_modules/**"],
+
+    /*
       Firebase's web config is public by design, but the SDK still refuses to
       initialise without one. These are throwaway values so `src/config/env.ts`
       validates cleanly and tests never touch a real project.

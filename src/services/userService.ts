@@ -19,6 +19,7 @@
 import type { User as FirebaseUser } from "firebase/auth";
 import { getDb } from "@/firebase";
 import { REMOTE_PATHS } from "@/constants/config";
+import { recordAudit } from "@/services/auditService";
 import { AuthorizationError } from "@/domain/auth/errors";
 import { PERMISSIONS, can } from "@/domain/auth/permissions";
 import { userRoleSchema } from "@/domain/validation/schemas";
@@ -230,11 +231,32 @@ export const updateUserRole = async (
     const snap = await getDoc(ref);
     const now = new Date();
 
+    const previous = snap.exists()
+      ? ((snap.data() as { role?: unknown }).role ?? "unknown")
+      : "none";
+
     if (snap.exists()) {
       await updateDoc(ref, { role: parsed.data, updatedAt: now });
     } else {
       await setDoc(ref, { role: parsed.data, createdAt: now, updatedAt: now });
     }
+
+    /*
+      Recorded after the change, and its failure deliberately ignored.
+
+      The role has already moved by this point. Reporting the whole operation
+      as failed because its record could not be written would send an
+      administrator to retry something that already worked - and the retry
+      would be a second, identical change.
+
+      The previous role is captured because `users` keeps only the current
+      one, so this is the only place the transition survives at all.
+    */
+    void recordAudit(actor, {
+      action: "ROLE_CHANGED",
+      subject: userId,
+      detail: `${String(previous)} -> ${parsed.data}`,
+    });
 
     return { ok: true };
   } catch (error) {

@@ -7,7 +7,7 @@
  * adding a required field to a domain type breaks one file rather than forty.
  */
 
-import { createTicket } from "@/domain/ticket/factory";
+import { confirmPayment, createTicket } from "@/domain/ticket/factory";
 import type { Ticket, TicketDraft } from "@/domain/ticket/types";
 import { getTrips, type Trip } from "@/domain/transit/schedule";
 import type { UserRecord } from "@/types/user";
@@ -32,16 +32,32 @@ export const makeDraft = (over: Partial<TicketDraft> = {}): TicketDraft => ({
 });
 
 /**
- * A complete ticket.
+ * A payment intent standing in for whatever a provider returned.
+ *
+ * The amount is not read by anything that stores a ticket; the reference is,
+ * because it is the passenger's handle on the transaction.
+ */
+const paidWith = { intentId: "test-intent", amountInr: 10, reference: "test-ref" };
+
+/**
+ * A complete, paid ticket.
  *
  * Built through the real factory rather than hand-written, so a fixture can
- * never describe a ticket the application itself could not produce.
+ * never describe a ticket the application itself could not produce - and
+ * through BOTH of its steps, because a ticket in storage is one a passenger
+ * paid for. `createTicket` alone now leaves the payment PENDING, which is the
+ * truthful state of a journey that has been validated and not yet bought.
+ *
+ * A test that wants the unpaid half can ask for it through `patch`.
  */
 export const makeTicket = (
   over: Partial<TicketDraft> = {},
   now: Date = TEST_NOW,
   patch: Partial<Ticket> = {}
-): Ticket => ({ ...createTicket(makeDraft(over), now), ...patch });
+): Ticket => ({
+  ...confirmPayment(createTicket(makeDraft(over), now), paidWith, now),
+  ...patch,
+});
 
 /** Formats a Date as the 12-hour string the timetable uses ("6:25 AM"). */
 export const formatClockTime = (date: Date): string => {
@@ -76,8 +92,11 @@ export const makeFutureDraft = (
 };
 
 /** A ticket for a journey that has not departed yet, so it stays cancellable. */
-export const makeUpcomingTicket = (over: Partial<TicketDraft> = {}): Ticket =>
-  createTicket(makeFutureDraft(over), new Date());
+export const makeUpcomingTicket = (over: Partial<TicketDraft> = {}): Ticket => {
+  const now = new Date();
+
+  return confirmPayment(createTicket(makeFutureDraft(over), now), paidWith, now);
+};
 
 export const makeUserRecord = (over: Partial<UserRecord> = {}): UserRecord => ({
   uid: "user-1",

@@ -3,24 +3,29 @@ import { Link, useLocation, useNavigate, useSearchParams } from "react-router-do
 import { toast } from "sonner";
 import { ArrowRight, Clock, Repeat, Search } from "lucide-react";
 import Header from "@/components/Header";
+import { useTranslation } from "@/contexts/LocaleContext";
 import Footer from "@/components/Footer";
 import StopField from "@/components/StopField";
 import BookingModal from "@/components/BookingModal";
 import PaymentModal from "@/components/PaymentModal";
+import JourneyShortcuts from "@/components/JourneyShortcuts";
+import type { JourneyPair } from "@/domain/journeys";
 import { useAuth } from "@/contexts/AuthContext";
 import type { JourneySelection } from "@/domain/ticket/types";
 import { parseTimeToDate } from "@/domain/time";
+import { BOOKING_FAILURE_MESSAGES } from "@/services/ticketService";
 import { calculateFare } from "@/domain/transit/fares";
+import { transferOptionsFor } from "@/domain/transit/transfers";
 import { isInterchange } from "@/domain/transit/routes";
 import {
+  getAllTrips,
   getCallTime,
-  getDestinationsFrom,
   getTripStops,
-  getTrips,
   hasScheduledService,
   serviceFor,
   type Trip,
 } from "@/domain/transit/schedule";
+import { tripServesJourney } from "@/domain/transit/departures";
 import { findStops, isStopName, type StopName } from "@/domain/transit/stops";
 
 interface JourneyOption {
@@ -68,6 +73,8 @@ const formatDuration = (minutes: number): string => {
 };
 
 const Plan = () => {
+  const { t } = useTranslation();
+
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -98,8 +105,8 @@ const Plan = () => {
     const [hours = 0, mins = 0] = searchedTime.split(":").map(Number);
     const earliest = hours * 60 + mins;
 
-    return getTrips(serviceFor(new Date(`${searchedDate}T00:00:00`)))
-      .filter((trip) => getDestinationsFrom(trip, origin).includes(destination))
+    return getAllTrips(serviceFor(new Date(`${searchedDate}T00:00:00`)))
+      .filter((trip) => tripServesJourney(trip, origin, destination))
       .map((trip) => {
         const departure = getCallTime(trip, origin)!;
         const arrival = getCallTime(trip, destination)!;
@@ -126,6 +133,19 @@ const Plan = () => {
   const sameStop = Boolean(origin && destination && origin === destination);
   const unresolved =
     (params.get("from") ?? "") !== "" && (!origin || !destination);
+  /*
+    Only asked for when nothing direct exists, which is also the only case
+    `transferOptionsFor` answers - it returns nothing when a through trip
+    runs, so a passenger is never offered a change beside a direct bus.
+  */
+  const changes = useMemo(
+    () =>
+      origin && destination
+        ? transferOptionsFor(origin, destination, new Date(searchedDate))
+        : [],
+    [origin, destination, searchedDate]
+  );
+
   const unserved =
     origin && !hasScheduledService(origin)
       ? origin
@@ -143,9 +163,15 @@ const Plan = () => {
     setTo(from);
   };
 
+  const handlePick = (journey: JourneyPair) => {
+    setFrom(journey.from);
+    setTo(journey.to);
+    setParams({ from: journey.from, to: journey.to, date, time });
+  };
+
   const handleBook = (trip: Trip) => {
     if (!user) {
-      toast.info("Please sign in to book a ticket.");
+      toast.info(t(BOOKING_FAILURE_MESSAGES.NOT_AUTHENTICATED));
       navigate("/login", { state: { from: location } });
       return;
     }
@@ -162,32 +188,31 @@ const Plan = () => {
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-10 animate-fade-in-up">
             <h1 className="text-3xl md:text-4xl font-bold text-primary tracking-tight">
-              Plan your journey
+              {t("plan.title")}
             </h1>
             <p className="mt-3 text-muted-foreground">
-              Choose where you are boarding and where you are going. Fares come
-              from the official BRTS fare chart.
+{t("plan.intro")}
             </p>
 
             <Link
               to="/nearby"
               className="inline-block mt-3 text-primary font-medium underline underline-offset-2 touch-target"
             >
-              Not sure where to go? Browse nearby places
+              {t("plan.browseNearby")}
             </Link>
           </div>
 
           <div className="brt-search-card animate-fade-in-up animate-stagger-1">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <StopField
-                label="From"
+                label={t("plan.from")}
                 value={from}
                 onChange={setFrom}
                 exclude={resolveStop(to) ?? ""}
               />
 
               <StopField
-                label="To"
+                label={t("plan.to")}
                 value={to}
                 onChange={setTo}
                 exclude={resolveStop(from) ?? ""}
@@ -198,7 +223,7 @@ const Plan = () => {
                   htmlFor="plan-date"
                   className="block text-sm font-medium text-foreground mb-1"
                 >
-                  Travel date
+                  {t("plan.date")}
                 </label>
                 <input
                   id="plan-date"
@@ -215,7 +240,7 @@ const Plan = () => {
                   htmlFor="plan-time"
                   className="block text-sm font-medium text-foreground mb-1"
                 >
-                  Leaving after
+                  {t("plan.leavingAfter")}
                 </label>
                 <input
                   id="plan-time"
@@ -234,25 +259,31 @@ const Plan = () => {
                 className="brt-button flex-1 flex items-center justify-center gap-2 touch-target"
               >
                 <Search className="w-4 h-4" aria-hidden="true" />
-                Search journeys
+                {t("plan.search")}
               </button>
 
               <button
                 type="button"
                 onClick={handleSwap}
-                className="px-6 py-3 rounded-xl border border-border text-foreground font-medium transition-all duration-300 hover:bg-secondary flex items-center justify-center gap-2 touch-target"
+                className="px-6 py-3 rounded-xl border border-border text-foreground font-medium transition-colors duration-state hover:bg-secondary flex items-center justify-center gap-2 touch-target"
               >
                 <Repeat className="w-4 h-4" aria-hidden="true" />
-                Swap
+                {t("plan.swap")}
               </button>
             </div>
           </div>
+
+          <JourneyShortcuts
+            from={searched && !sameStop ? origin : null}
+            to={searched && !sameStop ? destination : null}
+            onPick={handlePick}
+          />
 
           <div aria-live="polite" className="mt-8">
             {sameStop && (
               <div className="rounded-xl bg-destructive/10 border border-destructive/30 px-4 py-3">
                 <p className="text-sm text-destructive font-medium">
-                  Choose two different stops.
+                  {t("plan.sameStop")}
                 </p>
               </div>
             )}
@@ -260,8 +291,7 @@ const Plan = () => {
             {unresolved && !sameStop && (
               <div className="rounded-xl bg-destructive/10 border border-destructive/30 px-4 py-3">
                 <p className="text-sm text-destructive font-medium">
-                  Pick both stops from the suggestions so we can price the
-                  journey.
+{t("plan.unresolved")}
                 </p>
               </div>
             )}
@@ -281,10 +311,10 @@ const Plan = () => {
 
                     <div className="text-right">
                       <p className="text-xs text-muted-foreground">
-                        Official fare
+                        {t("plan.officialFare")}
                       </p>
                       <p className="text-2xl font-bold text-primary">
-                        {fare === null ? "Not published" : `₹${fare}/-`}
+                        {fare === null ? t("plan.notPublished") : `₹${fare}/-`}
                       </p>
                     </div>
                   </div>
@@ -293,36 +323,106 @@ const Plan = () => {
                 {fare === null && (
                   <div className="rounded-xl bg-destructive/10 border border-destructive/30 px-4 py-3 mb-6">
                     <p className="text-sm text-destructive font-medium">
-                      The official fare chart does not price this journey, so it
-                      cannot be booked yet.
+{t("plan.noFare")}
                     </p>
                   </div>
                 )}
 
-                {options.length === 0 ? (
+                {options.length === 0 && changes.length > 0 ? (
+                  <div className="brt-card text-left">
+                    <p className="font-semibold text-foreground mb-1">
+                      {t("plan.change.title")}
+                    </p>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      {t("plan.change.intro")}
+                    </p>
+
+                    <ol className="space-y-4">
+                      {changes.map((option) => (
+                        <li
+                          key={`${option.first.id}-${option.changeAt}-${option.second.id}`}
+                          className="rounded-xl border border-border p-4"
+                        >
+                          <p className="text-sm">
+                            <span className="font-semibold">{origin}</span>{" "}
+                            <span className="tabular-nums">{option.departs}</span>
+                            {" → "}
+                            <span className="font-semibold">{option.changeAt}</span>{" "}
+                            <span className="tabular-nums">
+                              {option.arrivesAtChange}
+                            </span>
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {t("plan.change.route", {
+                              route: option.first.routeId,
+                            })}
+                          </p>
+
+                          <p className="text-xs font-medium text-primary mt-2">
+                            {t("plan.change.changeAt", { stop: option.changeAt })}
+                            {" · "}
+                            {option.waitMinutes === 0
+                              ? t("plan.change.noWait")
+                              : t("plan.change.wait", {
+                                  minutes: option.waitMinutes,
+                                })}
+                          </p>
+
+                          <p className="text-sm mt-2">
+                            <span className="font-semibold">{option.changeAt}</span>{" "}
+                            <span className="tabular-nums">
+                              {option.departsChange}
+                            </span>
+                            {" → "}
+                            <span className="font-semibold">{destination}</span>{" "}
+                            <span className="tabular-nums">{option.arrives}</span>
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {t("plan.change.route", {
+                              route: option.second.routeId,
+                            })}
+                          </p>
+                        </li>
+                      ))}
+                    </ol>
+
+                    {/*
+                      Said plainly rather than left for a passenger to discover
+                      at the second stop: booking issues one ticket for one
+                      trip, so a change is two of them.
+                    */}
+                    <p className="text-sm text-muted-foreground mt-4">
+                      {t("plan.change.cannotBook")}
+                    </p>
+                  </div>
+                ) : options.length === 0 ? (
                   <div className="brt-card text-center">
                     <p className="font-semibold text-foreground mb-1">
-                      No scheduled service for this journey
+                      {t("plan.noService")}
                     </p>
                     {unserved ? (
                       <p className="text-sm text-muted-foreground">
-                        {unserved} is on the published network but has no
-                        departures yet. Browse the routes to see which stops
-                        the timetable covers.
+{t("plan.unservedStop", { stop: unserved })}
                       </p>
                     ) : (
                       <p className="text-sm text-muted-foreground">
-                        The timetable currently runs from HNLU towards Raipur
-                        Railway Station only, and departures are listed for the
-                        selected day after {searchedTime}.
+                        {t("plan.noTrip", {
+                          from: origin,
+                          to: destination,
+                          time: searchedTime,
+                        })}
                       </p>
                     )}
                   </div>
                 ) : (
                   <>
                     <h2 className="brt-section-title text-left text-primary">
-                      {options.length}{" "}
-                      {options.length === 1 ? "departure" : "departures"}
+                      {t(
+                        options.length === 1
+                          ? "plan.departureOne"
+                          : "plan.departureMany",
+                        { count: options.length }
+                      )}
                     </h2>
 
                     <div className="space-y-4">
@@ -359,7 +459,7 @@ const Plan = () => {
                               onClick={() => handleBook(option.trip)}
                               className="brt-button disabled:opacity-40 disabled:cursor-not-allowed touch-target"
                             >
-                              Book ticket
+                              {t("plan.bookTicket")}
                             </button>
                           </div>
                         </div>
@@ -368,8 +468,7 @@ const Plan = () => {
 
                     {!bookable && (
                       <p className="text-sm text-muted-foreground mt-4">
-                        Tickets are issued for travel today, so booking is
-                        available on today's departures only.
+                        {t("plan.todayOnly")}
                       </p>
                     )}
                   </>

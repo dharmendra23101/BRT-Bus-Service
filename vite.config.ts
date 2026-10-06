@@ -1,6 +1,45 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
+import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "path";
+
+/*
+  Gives the service worker a version that changes when the build does.
+
+  `public/sw.js` is copied verbatim, so a constant written by hand stays
+  identical across every deploy - and a browser only installs a new worker when
+  the file's bytes differ. The practical effect was that the first worker ever
+  installed was the last one: its `activate` handler, which purges superseded
+  caches, could not run a second time.
+
+  The id is the hash of the emitted filenames rather than a timestamp, so two
+  builds of the same source produce the same worker and a rebuild does not
+  invalidate caches that are still correct.
+*/
+const stampServiceWorker = (): Plugin => ({
+  name: "stamp-service-worker",
+  apply: "build",
+
+  writeBundle(options, bundle) {
+    const target = path.join(options.dir ?? "dist", "sw.js");
+    const buildId = createHash("sha256")
+      .update(Object.keys(bundle).sort().join(","))
+      .digest("hex")
+      .slice(0, 12);
+
+    const source = readFileSync(target, "utf8");
+
+    if (!source.includes("__BUILD_ID__")) {
+      this.error(
+        "public/sw.js no longer contains __BUILD_ID__; the offline shell " +
+          "would ship with a version that never changes."
+      );
+    }
+
+    writeFileSync(target, source.replace("__BUILD_ID__", buildId));
+  },
+});
 
 export default defineConfig({
   server: {
@@ -8,7 +47,7 @@ export default defineConfig({
     port: 8080,
   },
 
-  plugins: [react()],
+  plugins: [react(), stampServiceWorker()],
 
   resolve: {
     alias: {

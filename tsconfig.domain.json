@@ -1,0 +1,36 @@
+{
+  // The type-level half of the portability guard.
+  //
+  // `lib` omits DOM and `types` is empty on purpose: this is the compiler
+  // being told there is no browser. The domain already passes - it has no
+  // React import, no Firebase import, and imports nothing from services,
+  // components, pages, hooks or contexts - and this is what keeps it that way.
+  //
+  // Hermes provides `console`, so it is declared here rather than pulled in
+  // via @types/node, which would quietly readmit a great deal else.
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020"],
+    "types": [],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitAny": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "skipLibCheck": true,
+
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  },
+  "include": ["src/domain", "src/types", "src/console.d.ts"]
+}

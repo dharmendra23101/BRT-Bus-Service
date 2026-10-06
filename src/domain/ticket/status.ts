@@ -10,15 +10,23 @@
 import { TICKET_RULES } from "@/constants/config";
 import { getArrivalAt, getDepartureAt } from "./timing";
 import type { Ticket, TicketStatus } from "./types";
+import type { TranslationKey } from "@/domain/i18n/en";
 
-/** Human-readable status names, used wherever a status is shown. */
-export const STATUS_LABELS: Record<TicketStatus, string> = {
-  PENDING: "Pending",
-  ACTIVE: "Active",
-  BOARDING_SOON: "Boarding Soon",
-  IN_TRANSIT: "In Transit",
-  COMPLETED: "Completed",
-  CANCELLED: "Cancelled",
+/**
+ * What each status is called, as a key rather than as words.
+ *
+ * The status engine decides which state a ticket is in; it does not decide
+ * which language to say so in. Three surfaces render these - the ticket, the
+ * history list and /help - and they have to agree, which is the reason this
+ * is one table rather than three sets of literals.
+ */
+export const STATUS_LABELS: Record<TicketStatus, TranslationKey> = {
+  PENDING: "ticket.status.pending",
+  ACTIVE: "ticket.status.active",
+  BOARDING_SOON: "ticket.status.boardingSoon",
+  IN_TRANSIT: "ticket.status.inTransit",
+  COMPLETED: "ticket.status.completed",
+  CANCELLED: "ticket.status.cancelled",
 };
 
 /**

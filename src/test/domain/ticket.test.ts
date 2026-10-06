@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { findConflictingTicket } from "@/domain/ticket/conflicts";
-import { createTicket } from "@/domain/ticket/factory";
+import { confirmPayment, createTicket } from "@/domain/ticket/factory";
 import { isLiveStatus, resolveTicketStatus } from "@/domain/ticket/status";
 import { getArrivalAt, getDepartureAt } from "@/domain/ticket/timing";
 import type { TicketDraft } from "@/domain/ticket/types";
@@ -85,7 +85,23 @@ describe("ticket creation", () => {
 });
 
 describe("status engine", () => {
-  const ticket = createTicket(draft());
+  const intent = { intentId: "i", amountInr: 10, reference: "ref" };
+
+  /* Paid, because every ticket that reaches storage has been. */
+  const ticket = confirmPayment(createTicket(draft()), intent);
+
+  /*
+    This rule used to be unreachable. `createTicket` hardcoded SUCCESS, so no
+    ticket could ever fail the payment check and the branch below it was dead
+    - which is exactly why nothing noticed that the claim was never true.
+  */
+  it("holds a ticket at pending until its payment goes through", () => {
+    expect(resolveTicketStatus(createTicket(draft()), at(8, 0))).toBe("PENDING");
+  });
+
+  it("records what the passenger would quote about the payment", () => {
+    expect(ticket.paymentReference).toBe("ref");
+  });
 
   it("is active well before departure", () => {
     expect(resolveTicketStatus(ticket, at(8, 0))).toBe("ACTIVE");
@@ -124,7 +140,11 @@ describe("status engine", () => {
 });
 
 describe("duplicate booking prevention", () => {
-  const existing = createTicket(draft(), at(8, 0));
+  const existing = confirmPayment(
+    createTicket(draft(), at(8, 0)),
+    { intentId: "i", amountInr: 10, reference: "ref" },
+    at(8, 0)
+  );
 
   it("blocks a journey overlapping a live ticket", () => {
     const conflict = findConflictingTicket(

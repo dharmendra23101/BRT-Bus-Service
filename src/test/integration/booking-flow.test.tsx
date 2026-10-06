@@ -101,7 +101,7 @@ describe("booking a ticket", () => {
     expect(payment).toHaveTextContent("₹10/-");
 
     await user.click(
-      within(payment).getByRole("button", { name: /simulate payment/i })
+      within(payment).getByRole("button", { name: /demonstration ticket/i })
     );
 
     // The gateway is deliberately slow so the processing state is visible.
@@ -141,7 +141,7 @@ describe("booking a ticket", () => {
 
     const payment = await screen.findByRole("dialog", { name: /payment/i });
     await user.click(
-      within(payment).getByRole("button", { name: /simulate payment/i })
+      within(payment).getByRole("button", { name: /demonstration ticket/i })
     );
 
     await vi.advanceTimersByTimeAsync(PAYMENT_CONFIG.SIMULATED_DELAY_MS + 100);
@@ -174,7 +174,7 @@ describe("booking a ticket", () => {
 
     const payment = await screen.findByRole("dialog", { name: /payment/i });
     await user.click(
-      within(payment).getByRole("button", { name: /simulate payment/i })
+      within(payment).getByRole("button", { name: /demonstration ticket/i })
     );
     await vi.advanceTimersByTimeAsync(PAYMENT_CONFIG.SIMULATED_DELAY_MS + 100);
 
@@ -223,9 +223,23 @@ describe("duplicate booking prevention", () => {
 });
 
 describe("services that are not running today", () => {
+  /*
+    The timetable now opens on the service that is actually running, so the
+    other one is reached through the day switch. The invariant is unchanged and
+    is what these tests are really for: a passenger may never book a service
+    that is not running today, whichever timetable they are looking at.
+  */
+  const showWeekend = async (user: ReturnType<typeof renderWithProviders>["user"]) => {
+    await user.click(
+      await screen.findByRole("button", { name: /^weekend$/i })
+    );
+  };
+
   it("refuses a weekend service to a passenger travelling on a Monday", async () => {
-    renderWithProviders(<Timetable />, { route: "/timetable" });
+    const { user } = renderWithProviders(<Timetable />, { route: "/timetable" });
     signedIn();
+
+    await showWeekend(user);
 
     const weekendBook = await screen.findAllByRole("button", {
       name: /^book route 102/i,
@@ -235,21 +249,46 @@ describe("services that are not running today", () => {
   });
 
   it("explains why rather than leaving the button mysteriously dead", async () => {
-    renderWithProviders(<Timetable />, { route: "/timetable" });
+    const { user } = renderWithProviders(<Timetable />, { route: "/timetable" });
     signedIn();
 
-    expect(
-      await screen.findByText(/does not run today/i)
-    ).toBeInTheDocument();
+    await showWeekend(user);
+
+    expect(await screen.findByText(/does not run today/i)).toBeInTheDocument();
   });
 
   it("still lists the times, so the timetable stays useful as a reference", async () => {
-    renderWithProviders(<Timetable />, { route: "/timetable" });
+    const { user } = renderWithProviders(<Timetable />, { route: "/timetable" });
     signedIn();
+
+    await showWeekend(user);
 
     expect(
       await screen.findByRole("region", { name: /Weekends/i })
     ).toBeInTheDocument();
+  });
+
+  it("says which timetable is being shown when it is not today's", async () => {
+    const { user } = renderWithProviders(<Timetable />, { route: "/timetable" });
+    signedIn();
+
+    await showWeekend(user);
+
+    expect(
+      await screen.findByText(/booking stays on today/i)
+    ).toBeInTheDocument();
+  });
+
+  it("opens on today's service without being asked", async () => {
+    renderWithProviders(<Timetable />, { route: "/timetable" });
+    signedIn();
+
+    expect(
+      await screen.findByRole("region", { name: /Weekdays/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: /Weekends/i })
+    ).not.toBeInTheDocument();
   });
 
   it("leaves today's own service bookable", async () => {
@@ -266,18 +305,22 @@ describe("services that are not running today", () => {
   it("turns the restriction around on a Saturday", async () => {
     vi.setSystemTime(new Date(2026, 6, 25, 5, 0, 0));
 
-    renderWithProviders(<Timetable />, { route: "/timetable" });
+    const { user } = renderWithProviders(<Timetable />, { route: "/timetable" });
     signedIn();
 
-    const weekdayBook = await screen.findAllByRole("button", {
-      name: /^book route 101 departing 6:25 AM/i,
-    });
     const weekendBook = await screen.findAllByRole("button", {
       name: /^book route 102/i,
     });
 
-    expect(weekdayBook[0]).toBeDisabled();
     expect(weekendBook[0]).toBeEnabled();
+
+    await user.click(await screen.findByRole("button", { name: /^weekday$/i }));
+
+    const weekdayBook = await screen.findAllByRole("button", {
+      name: /^book route 101 departing 6:25 AM/i,
+    });
+
+    expect(weekdayBook[0]).toBeDisabled();
   });
 });
 

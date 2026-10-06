@@ -3,36 +3,75 @@
     ".read": false,
     ".write": false,
 
-    "busLocations": {
-      ".read": true,
+    "driverAllowlist": {
+      ".read": false,
+
+      "$uid": {
+        ".write": false
+      }
+    },
+
+    "operatorAllowlist": {
+      ".read": false,
+
+      "$uid": {
+        ".write": false
+      }
+    },
+
+    "assignments": {
+      ".read": "auth != null && root.child('operatorAllowlist').child(auth.uid).val() === true",
 
       "$driverUid": {
-        ".write": "auth != null && auth.uid === $driverUid",
+        ".read": "auth != null && auth.uid === $driverUid",
+        ".write": false
+      }
+    },
 
-        ".validate": "newData.hasChildren(['lat', 'lng', 'updatedAt']) || !newData.exists()",
+    "vehicleStatus": {
+      ".read": true,
 
-        "lat": {
-          ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90"
-        },
+      "$vehicleId": {
+        ".write": "auth != null && root.child('driverAllowlist').child(auth.uid).val() === true && root.child('assignments').child(auth.uid).child('vehicleId').val() === $vehicleId && root.child('assignments').child(auth.uid).child('validFrom').val() <= now && root.child('assignments').child(auth.uid).child('validTo').val() > now",
 
-        "lng": {
-          ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180"
-        },
+        ".validate": "!newData.exists() || newData.hasChildren(['lastSeenAt'])",
 
-        "updatedAt": {
-          ".validate": "newData.isNumber() && newData.val() <= now + 60000"
-        },
-
-        "busId": {
-          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 16"
-        },
-
-        "routeId": {
-          ".validate": "newData.isString() && newData.val().matches(/^(101|102)$/)"
+        "lastSeenAt": {
+          ".validate": "newData.isNumber() && newData.val() <= now && newData.val() > now - 5000"
         },
 
         "$other": {
           ".validate": false
+        }
+      }
+    },
+
+    "busLocationsByRoute": {
+      ".read": true,
+
+      "$routeId": {
+        ".validate": "$routeId.matches(/^(101|102|105|201|202|203|204|205)$/)",
+
+        "$vehicleId": {
+          ".write": "auth != null && root.child('driverAllowlist').child(auth.uid).val() === true && root.child('assignments').child(auth.uid).child('vehicleId').val() === $vehicleId && root.child('assignments').child(auth.uid).child('validFrom').val() <= now && root.child('assignments').child(auth.uid).child('validTo').val() > now && root.child('assignments').child(auth.uid).child('validTo').val() - root.child('assignments').child(auth.uid).child('validFrom').val() <= 86400000",
+
+          ".validate": "!newData.exists() || (newData.hasChildren(['lat', 'lng', 'updatedAt']) && (!data.exists() || newData.child('updatedAt').val() >= data.child('updatedAt').val() + 5000))",
+
+          "lat": {
+            ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90"
+          },
+
+          "lng": {
+            ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180"
+          },
+
+          "updatedAt": {
+            ".validate": "newData.isNumber() && newData.val() <= now && newData.val() > now - 5000"
+          },
+
+          "$other": {
+            ".validate": false
+          }
         }
       }
     }

@@ -44,3 +44,14 @@ pubsub-debug.log
 # Private planning docs - roadmaps, audits, competitive research.
 # Never published: the public repo shows the product, not the plan.
 docs/private/
+
+# Local editor and tooling state.
+.claude/
+
+# The exported GTFS feed, and the operator inputs it is built from.
+#
+# The feed is build output. The config carries surveyed stop coordinates and
+# the operator's own identity - data belonging to somebody else, and the one
+# thing a fixture version of could be mistaken for the real survey.
+dist-gtfs/
+gtfs.config.json

@@ -8,8 +8,16 @@
 
 import { haversineKm } from "../geo";
 import { STOP_COORDS, type Coordinate, type StopName } from "./stops";
+import { ROUTE_STOPS } from "./route-stops";
 
-export const ROUTE_IDS = ["101", "102"] as const;
+/**
+ * Every route the operator publishes.
+ *
+ * 101, 102 and 105 run HNLU to the railway station; 201-205 run the return
+ * working, which is a different service with its own numbering rather than
+ * "101 backwards".
+ */
+export const ROUTE_IDS = ["101", "102", "105", "201", "202", "203", "204", "205"] as const;
 
 export type RouteId = (typeof ROUTE_IDS)[number];
 
@@ -23,49 +31,32 @@ export interface Route {
   servedStops: readonly StopName[];
 }
 
-const ROUTE_101_STOPS: readonly StopName[] = [
-  "HNLU",
-  "Balco Medical Center",
-  "Sector 30",
-  "Sector 29",
-  "Sector 27",
-  "South Block",
-  "Indravati Bhavan",
-  "Mahanadi Bhavan",
-  "North Block",
-  "Ekatm Path",
-  "CBD",
-  "Sector 15",
-  "Telibandha",
-  "DKS Bhawan",
-  "Raipur Railway Station",
-];
-
 /**
- * Route 102 is the express variant: it runs the same corridor but omits the
- * two Bhavan stops. This is the single declaration of that fact - the weekend
- * timetable used to encode it as empty strings in positional columns.
+ * The stops a route calls at.
+ *
+ * Read from a generated module rather than computed from the trip data here:
+ * routes are reachable from the eager entry chunk, so importing 102 trips to
+ * derive fifteen stop names would make every visitor download the timetable.
  */
-const ROUTE_102_SKIPPED: readonly StopName[] = ["Indravati Bhavan", "Mahanadi Bhavan"];
+const stopsOf = (id: RouteId): readonly StopName[] => ROUTE_STOPS[id] ?? [];
 
-const ROUTE_102_STOPS: readonly StopName[] = ROUTE_101_STOPS.filter(
-  (stop) => !ROUTE_102_SKIPPED.includes(stop)
-);
-
-export const ROUTES: Record<RouteId, Route> = {
-  "101": {
-    id: "101",
-    name: "Route 101",
-    headline: "HNLU to Raipur Railway Station",
-    servedStops: ROUTE_101_STOPS,
-  },
-  "102": {
-    id: "102",
-    name: "Route 102",
-    headline: "HNLU to Raipur Railway Station (Express)",
-    servedStops: ROUTE_102_STOPS,
-  },
+const HEADLINES: Record<RouteId, string> = {
+  "101": "HNLU to Raipur Railway Station",
+  "102": "HNLU to Raipur Railway Station (Express)",
+  "105": "HNLU to Raipur Railway Station (via IIM)",
+  "201": "Raipur Railway Station to HNLU",
+  "202": "Raipur Railway Station to HNLU",
+  "203": "Raipur Railway Station to HNLU",
+  "204": "DKS Bhawan to Balco Medical Center",
+  "205": "Raipur Railway Station to HNLU (via IIM)",
 };
+
+export const ROUTES: Record<RouteId, Route> = Object.fromEntries(
+  ROUTE_IDS.map((id) => [
+    id,
+    { id, name: `Route ${id}`, headline: HEADLINES[id], servedStops: stopsOf(id) },
+  ])
+) as Record<RouteId, Route>;
 
 export const getRoute = (id: RouteId): Route => ROUTES[id];
 
@@ -80,8 +71,19 @@ export interface RoutePosition {
   totalStops: number;
 }
 
+/** Where a route ends, from its published stop order. Needs no coordinates. */
+export const destinationOf = (id: RouteId): StopName =>
+  ROUTES[id].servedStops[ROUTES[id].servedStops.length - 1]!;
+
 /**
  * Places a position against a route's stops.
+ *
+ * DO NOT SHOW THE RESULT TO ANYONE. The algorithm is sound; the data it reads
+ * is not. `STOP_COORDS` is a generated lattice whose "HNLU" sits about 21 km
+ * from the real one, so the nearest stop to a genuine GPS fix is effectively
+ * arbitrary - and "next stop" is the kind of claim a passenger acts on. It
+ * stays here, tested, ready for the day surveyed coordinates land
+ * (`ARCHITECTURE-2.0.md` §14.1); a test asserts no component imports it.
  *
  * Both routes are declared in travel order and run the corridor in one
  * direction only, so the stop after the nearest one is genuinely the next one

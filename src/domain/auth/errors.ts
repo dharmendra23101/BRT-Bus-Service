@@ -10,6 +10,7 @@
  */
 
 import type { Permission } from "./permissions";
+import type { TranslationKey } from "@/domain/i18n/en";
 
 /** Thrown when an actor attempts something their role does not permit. */
 export class AuthorizationError extends Error {
@@ -42,11 +43,16 @@ export const isAuthorizationError = (error: unknown): error is AuthorizationErro
  */
 export const toSafeMessage = (
   error: unknown,
-  fallback = "Something went wrong. Please try again."
-): string => {
-  if (error instanceof AuthorizationError || error instanceof AuthenticationError) {
-    return error.message;
-  }
+  fallback: TranslationKey = "error.generic"
+): TranslationKey => {
+  /*
+    Matched on the class rather than passed through as `error.message`. A
+    thrown Error's message is a developer artefact - it goes to a log and a
+    stack trace - and the words a passenger reads are chosen where the
+    language is known.
+  */
+  if (error instanceof AuthorizationError) return "error.noPermission";
+  if (error instanceof AuthenticationError) return "error.signInRequired";
 
   if (typeof error === "object" && error !== null && "code" in error) {
     const code = String((error as { code: unknown }).code);
@@ -54,11 +60,11 @@ export const toSafeMessage = (
     // Permission denials are expected when rules do their job; they are not
     // a bug and should read as a plain refusal.
     if (code.includes("permission-denied") || code.includes("PERMISSION_DENIED")) {
-      return "You do not have permission to perform this action.";
+      return "error.noPermission";
     }
 
     if (code.includes("unavailable") || code.includes("network")) {
-      return "Network unavailable. Please check your connection and try again.";
+      return "error.network";
     }
   }
 
@@ -81,7 +87,7 @@ const authCodeOf = (error: unknown): string =>
  * email addresses are registered by watching which error comes back. Every
  * credential failure therefore collapses to one indistinguishable message.
  */
-export const toAuthMessage = (error: unknown): string => {
+export const toAuthMessage = (error: unknown): TranslationKey => {
   const code = authCodeOf(error);
 
   switch (code) {
@@ -90,50 +96,50 @@ export const toAuthMessage = (error: unknown): string => {
     case "auth/wrong-password":
     case "auth/invalid-credential":
     case "auth/invalid-email":
-      return "Incorrect email or password.";
+      return "auth.error.credentials";
 
     case "auth/too-many-requests":
-      return "Too many attempts. Please wait a few minutes and try again.";
+      return "auth.error.tooManyAttempts";
 
     case "auth/user-disabled":
-      return "This account has been disabled.";
+      return "auth.error.disabled";
 
     case "auth/email-already-in-use":
-      return "That email address cannot be used to register.";
+      return "auth.error.emailInUse";
 
     case "auth/weak-password":
-      return "Please choose a password of at least 6 characters.";
+      return "auth.error.weakPassword";
 
     case "auth/popup-closed-by-user":
     case "auth/cancelled-popup-request":
-      return "Sign-in was cancelled.";
+      return "auth.error.cancelled";
 
     case "auth/popup-blocked":
-      return "Your browser blocked the sign-in popup. Please allow popups and retry.";
+      return "auth.error.popupBlocked";
 
     case "auth/network-request-failed":
-      return "Network unavailable. Please check your connection and try again.";
+      return "auth.error.network";
 
     default:
       console.error("Unhandled auth error:", error);
-      return "Sign-in failed. Please try again.";
+      return "auth.error.generic";
   }
 };
 
-export const toResetMessage = (error: unknown): string | null => {
+export const toResetMessage = (error: unknown): TranslationKey | null => {
   switch (authCodeOf(error)) {
     case "auth/user-not-found":
     case "auth/invalid-email":
       return null;
 
     case "auth/too-many-requests":
-      return "Too many attempts. Please wait a few minutes and try again.";
+      return "auth.error.tooManyAttempts";
 
     case "auth/network-request-failed":
-      return "Network unavailable. Please check your connection and try again.";
+      return "auth.error.network";
 
     default:
       console.error("Unhandled password reset error:", error);
-      return "Could not send the reset email. Please try again.";
+      return "auth.error.resetFailed";
   }
 };

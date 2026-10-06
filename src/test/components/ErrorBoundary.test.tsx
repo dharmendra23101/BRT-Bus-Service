@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Suspense, lazy } from "react";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { renderWithProviders, screen, within } from "../helpers/render";
@@ -82,6 +82,14 @@ describe("recovering from a failed render", () => {
     silenceReactErrorLog();
 
     const reload = vi.fn();
+
+    /*
+      Restored below. Left in place it leaks into every file that runs after
+      this one in the same worker: the replacement has no origin or href, so
+      any later test that pushes history fails with an unrelated URL error.
+    */
+    const realLocation = Object.getOwnPropertyDescriptor(window, "location");
+
     Object.defineProperty(window, "location", {
       configurable: true,
       value: { reload },
@@ -96,6 +104,8 @@ describe("recovering from a failed render", () => {
     await user.click(screen.getByRole("button", { name: "Reload the page" }));
 
     expect(reload).toHaveBeenCalled();
+
+    if (realLocation) Object.defineProperty(window, "location", realLocation);
   });
 
   it("offers a fresh load of the home page rather than a router link", () => {
@@ -132,6 +142,88 @@ describe("when a page's code never arrives", () => {
 
     expect(
       await screen.findByRole("heading", { name: "Something went wrong" })
+    ).toBeInTheDocument();
+  });
+});
+
+/*
+  Offline became a distinct failure the moment the app gained a service worker:
+  a page opened before is served from the cache, one that has not been is simply
+  absent, and telling somebody with no signal to reload is advice that cannot
+  work. `navigator.onLine` only reports a network interface, so it softens the
+  wording and never asserts a diagnosis.
+*/
+describe("when the page is missing because there is no connection", () => {
+  const setOnline = (value: boolean) =>
+    Object.defineProperty(navigator, "onLine", {
+      configurable: true,
+      value,
+    });
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "onLine");
+  });
+
+  it("says the page needs a connection rather than blaming the app", () => {
+    silenceReactErrorLog();
+    setOnline(false);
+
+    renderWithProviders(
+      <ErrorBoundary>
+        <Boom />
+      </ErrorBoundary>
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "This page needs a connection" })
+    ).toBeInTheDocument();
+    expect(within(screen.getByRole("main")).getByRole("alert")).toHaveTextContent(
+      /you appear to be offline/i
+    );
+  });
+
+  it("does not tell somebody with no signal that reloading will fix it", () => {
+    silenceReactErrorLog();
+    setOnline(false);
+
+    renderWithProviders(
+      <ErrorBoundary>
+        <Boom />
+      </ErrorBoundary>
+    );
+
+    expect(
+      screen.queryByText(/reloading usually fixes it/i)
+    ).not.toBeInTheDocument();
+  });
+
+  it("says what does still work", () => {
+    silenceReactErrorLog();
+    setOnline(false);
+
+    renderWithProviders(
+      <ErrorBoundary>
+        <Boom />
+      </ErrorBoundary>
+    );
+
+    expect(
+      screen.getByText(/Pages you have already visited still work/i)
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the ordinary message when the connection is fine", () => {
+    silenceReactErrorLog();
+    setOnline(true);
+
+    renderWithProviders(
+      <ErrorBoundary>
+        <Boom />
+      </ErrorBoundary>
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Something went wrong" })
     ).toBeInTheDocument();
   });
 });

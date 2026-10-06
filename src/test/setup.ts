@@ -10,6 +10,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, configure } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
+import { installMatchMedia, resetMediaQueries } from "./helpers/media";
 
 configure({ asyncUtilTimeout: 5000 });
 
@@ -54,21 +55,7 @@ vi.mock("firebase/database", async () => {
 
 /** jsdom implements neither of these, and several components call them. */
 beforeEach(() => {
-  if (!window.matchMedia) {
-    Object.defineProperty(window, "matchMedia", {
-      writable: true,
-      value: (query: string) => ({
-        matches: false,
-        media: query,
-        onchange: null,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-      }),
-    });
-  }
+  installMatchMedia();
 
   // Radix scroll-locking and the notification popup both reach for these.
   window.HTMLElement.prototype.scrollIntoView ??= vi.fn();
@@ -96,12 +83,22 @@ beforeEach(() => {
 afterEach(async () => {
   cleanup();
 
+  // Media queries are module state, so a test that turns reduced motion on
+  // would otherwise leave it on for everything after it.
+  resetMediaQueries();
+
   // Storage is shared process-wide, so a ticket written by one test would
   // otherwise be visible to the next.
   localStorage.clear();
 
   const { resetFirebaseMocks } = await import("./helpers/firebase");
   resetFirebaseMocks();
+
+  // The demo payment provider remembers settled attempts by idempotency key,
+  // so an identical journey in the next test would resolve instantly from the
+  // cache and never render its processing state.
+  const { resetDemoPayments } = await import("@/services/payment/demoProvider");
+  resetDemoPayments();
 
   vi.useRealTimers();
 });

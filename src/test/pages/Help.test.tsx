@@ -9,12 +9,14 @@
 
 import { describe, expect, it } from "vitest";
 import Help from "@/pages/Help";
+import { DEFAULT_FRESHNESS } from "@/domain/fleet/state";
 import { ARRIVAL_RULES, TICKET_RULES } from "@/constants/config";
 import { ROUTE_IDS, getRoute } from "@/domain/transit/routes";
 import { STOPS } from "@/domain/transit/stops";
 import { SCHEDULED_STOPS } from "@/domain/transit/schedule";
 import { STATUS_LABELS } from "@/domain/ticket/status";
 import { BOOKING_FAILURE_MESSAGES } from "@/services/ticketService";
+import { en } from "@/domain/i18n/en";
 import { renderWithProviders, screen } from "../helpers/render";
 
 const renderHelp = () => renderWithProviders(<Help />, { route: "/help" });
@@ -75,7 +77,9 @@ describe("what it says about booking", () => {
       "OVERLAPPING_TICKET",
       "STORAGE_FAILED",
     ] as const) {
-      expect(screen.getByText(BOOKING_FAILURE_MESSAGES[reason])).toBeInTheDocument();
+      expect(
+        screen.getByText(en[BOOKING_FAILURE_MESSAGES[reason]])
+      ).toBeInTheDocument();
     }
   });
 });
@@ -91,7 +95,7 @@ describe("what it says about a ticket", () => {
       "COMPLETED",
       "CANCELLED",
     ] as const) {
-      expect(screen.getByText(STATUS_LABELS[status])).toBeInTheDocument();
+      expect(screen.getByText(en[STATUS_LABELS[status]])).toBeInTheDocument();
     }
   });
 
@@ -115,10 +119,21 @@ describe("what it says about a ticket", () => {
     ).toBeInTheDocument();
   });
 
-  it("tells the passenger a ticket still opens without a connection", () => {
+  /*
+    This promise was withdrawn in §25 because nothing cached the app shell, and
+    restored in §30 once a service worker did. It is deliberately conditional:
+    a page never opened has nothing stored to show.
+  */
+  it("promises offline only for a ticket already opened", () => {
     renderHelp();
 
-    expect(screen.getByText(/shown again with no connection/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Will my ticket work without a signal?" })
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Yes, once you have opened it/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/A page you have never opened will not/i)
+    ).toBeInTheDocument();
   });
 });
 
@@ -126,7 +141,7 @@ describe("what it says about live tracking", () => {
   it("quotes the staleness window the map applies", () => {
     renderHelp();
 
-    const minutes = Math.round(ARRIVAL_RULES.STALE_LOCATION_MS / 60_000);
+    const minutes = Math.round(DEFAULT_FRESHNESS.staleMs / 60_000);
 
     expect(
       screen.getByText(new RegExp(`not reported for\\s+${minutes} minutes`))
@@ -137,7 +152,15 @@ describe("what it says about live tracking", () => {
     renderHelp();
 
     expect(
-      screen.getByText(new RegExp(`within\\s+${ARRIVAL_RULES.ALERT_MINUTES} minutes`))
+      screen.getByText(new RegExp(`within\\s+${ARRIVAL_RULES.ALERT_RADIUS_KM} km`))
+    ).toBeInTheDocument();
+  });
+
+  it("tells the passenger the alert is proximity, not an arrival time", () => {
+    renderHelp();
+
+    expect(
+      screen.getByText(/proximity alert, not an arrival time/i)
     ).toBeInTheDocument();
   });
 

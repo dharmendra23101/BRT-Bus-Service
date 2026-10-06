@@ -113,7 +113,14 @@ describe("booking through the context", () => {
     vi.useRealTimers();
   });
 
-  it("adds the ticket and makes it the active one", async () => {
+  /*
+    `bookTicket` takes no payment - it validates and issues. No page calls it;
+    the booking flow goes through `validateBooking`, the provider, and
+    `issueTicket`. So the ticket it produces is unpaid, and an unpaid ticket
+    is not one the passenger can travel on. That used to be invisible because
+    every ticket claimed to be paid the moment it was built.
+  */
+  it("adds an unpaid booking without making it travellable", async () => {
     const { result } = renderTickets();
     act(() => signInAs(makeUser({ uid: "user-1" })));
     await waitFor(() => expect(result.current.tickets).toEqual([]));
@@ -126,7 +133,8 @@ describe("booking through the context", () => {
 
     expect(outcome?.ok).toBe(true);
     await waitFor(() => expect(result.current.tickets).toHaveLength(1));
-    expect(result.current.activeTicket).not.toBeNull();
+    expect(result.current.tickets[0]?.paymentStatus).toBe("PENDING");
+    expect(result.current.activeTicket).toBeNull();
   });
 
   it("persists the booking so it survives a reload", async () => {

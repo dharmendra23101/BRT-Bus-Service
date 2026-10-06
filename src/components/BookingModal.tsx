@@ -10,6 +10,7 @@ import {
 import { findConflictingTicket } from "@/domain/ticket/conflicts";
 import type { JourneySelection } from "@/domain/ticket/types";
 import { calculateFare } from "@/domain/transit/fares";
+import { useTranslation } from "@/contexts/LocaleContext";
 import {
   getCallTime,
   getDestinationsFrom,
@@ -69,6 +70,7 @@ const BookingModal = ({
   const departureTime = getCallTime(trip, fromStop) ?? "";
   const arrivalTime = toStop ? getCallTime(trip, toStop) ?? "" : "";
   const fare = toStop ? calculateFare(fromStop, toStop) : null;
+  const { t } = useTranslation();
   const unpriced = toStop !== "" && fare === null;
 
   const { hasDeparted, conflict } = useMemo(() => {
@@ -92,16 +94,18 @@ const BookingModal = ({
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="max-w-md rounded-2xl">
         <DialogHeader>
-          <DialogTitle className="text-xl tracking-tight">Book your ticket</DialogTitle>
+          <DialogTitle className="text-xl tracking-tight">{t("booking.title")}</DialogTitle>
           <DialogDescription>
-            Route {trip.routeId}, departing {departureTime}. Choose where you are
-            boarding and where you are travelling to.
+            {t("booking.description", {
+              route: trip.routeId,
+              time: departureTime,
+            })}
           </DialogDescription>
         </DialogHeader>
 
         <div>
           <label htmlFor={fromId} className="block text-sm font-medium text-foreground mb-1">
-            From stop
+            {t("booking.fromStop")}
           </label>
           <select
             id={fromId}
@@ -120,12 +124,12 @@ const BookingModal = ({
           </select>
 
           <label htmlFor={toId} className="block text-sm font-medium text-foreground mb-1">
-            To stop
+            {t("booking.toStop")}
             <span className="text-destructive" aria-hidden="true">
               {" "}
               *
             </span>
-            <span className="sr-only"> (required)</span>
+            <span className="sr-only">{t("field.required")}</span>
           </label>
           <select
             id={toId}
@@ -135,7 +139,7 @@ const BookingModal = ({
             onChange={(e) => setToStop(e.target.value as StopName)}
             className="brt-input"
           >
-            <option value="">Select destination</option>
+            <option value="">{t("booking.selectDestination")}</option>
             {destinations.map((stop) => (
               <option key={stop} value={stop}>
                 {stop}
@@ -154,23 +158,23 @@ const BookingModal = ({
             <div className="bg-secondary rounded-xl p-4">
               <dl className="text-sm">
                 <div className="flex justify-between mb-1">
-                  <dt className="text-muted-foreground">From</dt>
+                  <dt className="text-muted-foreground">{t("journey.from")}</dt>
                   <dd className="font-medium text-foreground">{fromStop}</dd>
                 </div>
                 <div className="flex justify-between mb-1">
-                  <dt className="text-muted-foreground">To</dt>
+                  <dt className="text-muted-foreground">{t("journey.to")}</dt>
                   <dd className="font-medium text-foreground">{toStop}</dd>
                 </div>
                 <div className="flex justify-between mb-1">
-                  <dt className="text-muted-foreground">Departure</dt>
+                  <dt className="text-muted-foreground">{t("journey.departure")}</dt>
                   <dd className="font-medium text-foreground">{departureTime}</dd>
                 </div>
                 <div className="flex justify-between mb-1">
-                  <dt className="text-muted-foreground">Arrival</dt>
+                  <dt className="text-muted-foreground">{t("journey.arrival")}</dt>
                   <dd className="font-medium text-foreground">{arrivalTime}</dd>
                 </div>
                 <div className="flex justify-between pt-2 border-t border-border mt-2">
-                  <dt className="font-semibold text-foreground">Fare</dt>
+                  <dt className="font-semibold text-foreground">{t("booking.fare")}</dt>
                   <dd className="font-bold text-primary text-lg">₹{fare}/-</dd>
                 </div>
               </dl>
@@ -183,7 +187,7 @@ const BookingModal = ({
           {hasDeparted && (
             <div className="rounded-xl bg-destructive/10 border border-destructive/30 px-4 py-3">
               <p className="text-sm text-destructive font-medium">
-                This bus has already departed. Please choose a later service.
+                {t("booking.departed")}
               </p>
             </div>
           )}
@@ -191,8 +195,7 @@ const BookingModal = ({
           {unpriced && !hasDeparted && (
             <div className="rounded-xl bg-destructive/10 border border-destructive/30 px-4 py-3">
               <p className="text-sm text-destructive font-medium">
-                No fare is published for this journey yet, so it cannot be
-                booked. Please choose a different destination.
+                {t("booking.unpriced")}
               </p>
             </div>
           )}
@@ -200,8 +203,10 @@ const BookingModal = ({
           {conflict && !hasDeparted && !unpriced && (
             <div className="rounded-xl bg-destructive/10 border border-destructive/30 px-4 py-3">
               <p className="text-sm text-destructive font-medium">
-                You already have a ticket from {conflict.fromStop} to {conflict.toStop}{" "}
-                that overlaps this journey.
+                {t("booking.conflict", {
+                  from: conflict.fromStop,
+                  to: conflict.toStop,
+                })}
               </p>
             </div>
           )}
@@ -211,9 +216,9 @@ const BookingModal = ({
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 py-2.5 rounded-xl border border-border text-foreground font-medium transition-all duration-300 hover:bg-secondary touch-target"
+            className="flex-1 py-2.5 rounded-xl border border-border text-foreground font-medium transition-colors duration-state hover:bg-secondary touch-target"
           >
-            Cancel
+            {t("action.cancel")}
           </button>
 
           <button
@@ -234,7 +239,7 @@ const BookingModal = ({
             }}
             className="flex-1 brt-button disabled:opacity-40 disabled:cursor-not-allowed touch-target"
           >
-            Proceed to pay
+            {t("booking.proceed")}
           </button>
         </DialogFooter>
       </DialogContent>

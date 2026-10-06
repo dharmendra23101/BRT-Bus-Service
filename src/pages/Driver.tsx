@@ -4,13 +4,22 @@ import Footer from "@/components/Footer";
 import { POLLING } from "@/constants/config";
 import { useAuth } from "@/contexts/AuthContext";
 import { toSafeMessage } from "@/domain/auth/errors";
+import type { TranslationKey } from "@/domain/i18n/en";
+import { useTranslation } from "@/contexts/LocaleContext";
 import { PERMISSIONS, can } from "@/domain/auth/permissions";
 import { ROUTE_IDS, getRoute, type RouteId } from "@/domain/transit/routes";
+import {
+  SHARING_MESSAGES,
+  interruptionReason,
+  sharingHealth,
+} from "@/domain/fleet/sharing";
+import { useNow } from "@/hooks/use-now";
+import { useAnnounce } from "@/components/a11y/LiveAnnouncer";
 import {
   isLiveTrackingAvailable,
   publishLocation,
   stopPublishing,
-  toBusId,
+  subscribeToAssignment,
 } from "@/services/locationService";
 
 interface DriverCoords {
@@ -26,18 +35,52 @@ interface DriverCoords {
  * decides what renders, this decides what is written.
  */
 const Driver = () => {
+  const { t } = useTranslation();
   const { user, actor } = useAuth();
 
   const [isSharing, setIsSharing] = useState(false);
   const [routeId, setRouteId] = useState<RouteId>(ROUTE_IDS[0]);
   const [coords, setCoords] = useState<DriverCoords | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<TranslationKey | "">("");
+
+  /*
+    Which bus this driver may publish as, read live.
+
+    `undefined` means we have not been told yet; `null` means we have, and the
+    answer is nobody has assigned them one. The distinction matters on screen:
+    "checking" and "you have no bus" are different things to be told, and
+    showing the second while the first is true would be a false accusation.
+  */
+  const [vehicleId, setVehicleId] = useState<string | null | undefined>(
+    undefined
+  );
+
+  useEffect(() => {
+    if (!user) return;
+
+    return subscribeToAssignment(user.uid, setVehicleId);
+  }, [user]);
+
+  /*
+    Evidence, not intent. The indicator below is driven by when a publish last
+    actually succeeded rather than by the Start button, because a background
+    tab has its timers clamped and its geolocation suspended - so the old
+    boolean showed a green "sharing" light while nothing was being sent.
+  */
+  const [lastPublishedAt, setLastPublishedAt] = useState<number | null>(null);
+  const [wasHidden, setWasHidden] = useState(false);
+
+  // A short tick so an interruption is noticed while the driver is looking at
+  // the screen, rather than only when something else happens to re-render.
+  const now = useNow(2_000);
 
   const mayPublish = can(actor, PERMISSIONS.PUBLISH_LOCATION);
+  const announce = useAnnounce();
   const routeFieldId = useId();
 
   useEffect(() => {
-    if (!isSharing || !mayPublish) return;
+    // No assignment, nothing to publish as - and the rules would refuse it.
+    if (!isSharing || !mayPublish || !vehicleId) return;
 
     let cancelled = false;
 
@@ -49,11 +92,17 @@ const Driver = () => {
           const { latitude, longitude } = position.coords;
           setCoords({ latitude, longitude });
 
-          publishLocation(actor, { latitude, longitude }, routeId).catch((err) => {
-            if (cancelled) return;
-            setError(toSafeMessage(err, "Could not share your location."));
-            setIsSharing(false);
-          });
+          publishLocation(actor, { latitude, longitude }, vehicleId!, routeId)
+            .then(() => {
+              if (cancelled) return;
+              setLastPublishedAt(Date.now());
+              setWasHidden(false);
+            })
+            .catch((err) => {
+              if (cancelled) return;
+              setError(toSafeMessage(err, "error.shareLocation"));
+              setIsSharing(false);
+            });
         },
         (geoError) => {
           if (cancelled) return;
@@ -61,8 +110,8 @@ const Driver = () => {
           console.error("Geolocation failed:", geoError);
           setError(
             geoError.code === geoError.PERMISSION_DENIED
-              ? "Location permission is required to broadcast your position."
-              : "Could not read your location. Please try again."
+              ? "driver.error.permission"
+              : "driver.error.readFailed"
           );
           setIsSharing(false);
         },
@@ -73,11 +122,31 @@ const Driver = () => {
     publish();
     const interval = setInterval(publish, POLLING.DRIVER_LOCATION_MS);
 
+    /*
+      Publish again the moment the tab comes back.
+
+      A throttled interval may not fire for another minute, so without this the
+      bus stays missing from the map long after the driver has returned to the
+      screen. The hidden flag is recorded on the way out so the driver can be
+      told what actually happened rather than a generic failure.
+    */
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        setWasHidden(true);
+        return;
+      }
+
+      publish();
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
       cancelled = true;
       clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [isSharing, mayPublish, actor, routeId]);
+  }, [isSharing, mayPublish, actor, routeId, vehicleId]);
 
   /**
    * Clears the published position when the driver stops or leaves the page,
@@ -86,19 +155,44 @@ const Driver = () => {
   const stop = useCallback(async () => {
     setIsSharing(false);
     setCoords(null);
+    setLastPublishedAt(null);
+    setWasHidden(false);
 
     try {
-      await stopPublishing(actor);
+      if (vehicleId) await stopPublishing(actor, vehicleId, routeId);
     } catch (err) {
       console.error("Could not clear published location:", err);
     }
-  }, [actor]);
+  }, [actor, vehicleId, routeId]);
 
   useEffect(() => {
     return () => {
-      void stopPublishing(actor);
+      if (vehicleId) void stopPublishing(actor, vehicleId, routeId);
     };
-  }, [actor]);
+  }, [actor, vehicleId, routeId]);
+
+  const health = sharingHealth(
+    isSharing,
+    lastPublishedAt,
+    now.getTime(),
+    POLLING.DRIVER_LOCATION_MS
+  );
+
+  /*
+    Announced once per interruption, not on every re-render: the health check
+    re-evaluates every two seconds, and re-announcing would talk over the
+    driver continuously.
+  */
+  useEffect(() => {
+    if (health !== "interrupted") return;
+
+    announce(
+      t("driver.announce.interrupted", {
+        reason: t(interruptionReason(wasHidden)),
+      }),
+      "assertive"
+    );
+  }, [health, wasHidden, announce, t]);
 
   const startSharing = async () => {
     setError("");
@@ -106,7 +200,7 @@ const Driver = () => {
     // Resolves the on-demand Realtime Database load before promising the
     // driver that their position is being broadcast.
     if (!(await isLiveTrackingAvailable())) {
-      setError("Live tracking is unavailable right now.");
+      setError("driver.error.unavailable");
       return;
     }
 
@@ -114,19 +208,45 @@ const Driver = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#f4f2ff]">
+    <div className="min-h-screen bg-background">
       <Header />
 
       <main id="main-content" tabIndex={-1} className="py-20 px-4">
         <div className="max-w-xl mx-auto">
           <div className="bg-white rounded-2xl shadow-lg p-8 text-center space-y-6">
-            <h1 className="text-2xl font-bold text-[#6b4fa3]">Driver Live Tracking</h1>
+            <h1 className="text-2xl font-bold text-primary-deep">{t("driver.title")}</h1>
 
-            {user && (
+            {vehicleId && (
               <p className="text-sm text-gray-500">
-                Broadcasting as{" "}
-                <span className="font-mono font-medium">{toBusId(user.uid)}</span>
+                {t("driver.broadcastingAs")}{" "}
+                <span className="font-mono font-medium">{vehicleId}</span>
               </p>
+            )}
+
+            {vehicleId === undefined && (
+              <p className="text-sm text-gray-500">{t("driver.checking")}</p>
+            )}
+
+            {/*
+              The state this ships in, and it is not an error.
+
+              Nobody has a bus until the operator issues an assignment, and an
+              assignment expires on its own at the end of a shift. Both look
+              the same from here, and in both cases the honest thing is to say
+              there is nothing to broadcast as - rather than offer a Start
+              button that produces a write the database refuses and an error
+              the driver cannot act on.
+            */}
+            {vehicleId === null && (
+              <div
+                role="note"
+                className="rounded-lg border border-primary/30 bg-accent px-4 py-3 text-left"
+              >
+                <p className="text-sm text-primary-deep">
+                  <strong>{t("driver.noAssignment.lead")}</strong>{" "}
+                  {t("driver.noAssignment.body")}
+                </p>
+              </div>
             )}
 
             <div className="text-left">
@@ -134,7 +254,7 @@ const Driver = () => {
                 htmlFor={routeFieldId}
                 className="block text-sm font-medium text-gray-700 mb-1"
               >
-                Route you are running
+                {t("driver.routeLabel")}
               </label>
 
               <select
@@ -142,7 +262,7 @@ const Driver = () => {
                 value={routeId}
                 disabled={isSharing}
                 onChange={(event) => setRouteId(event.target.value as RouteId)}
-                className="w-full bg-gray-50 rounded-lg px-4 py-2.5 border-2 border-transparent focus:border-purple-400 transition-colors disabled:opacity-60"
+                className="w-full bg-gray-50 rounded-lg px-4 py-2.5 border-2 border-input focus:border-primary transition-colors disabled:opacity-60"
               >
                 {ROUTE_IDS.map((id) => (
                   <option key={id} value={id}>
@@ -153,7 +273,7 @@ const Driver = () => {
 
               {isSharing && (
                 <p className="text-xs text-gray-500 mt-1">
-                  Stop sharing to change route.
+                  {t("driver.stopToChange")}
                 </p>
               )}
             </div>
@@ -161,26 +281,51 @@ const Driver = () => {
             <div className="flex justify-center items-center gap-3">
               <div
                 className={`w-3 h-3 rounded-full ${
-                  isSharing ? "bg-green-500 animate-pulse" : "bg-gray-400"
+                  health === "sharing"
+                    ? "bg-green-500 animate-pulse"
+                    : health === "interrupted"
+                      ? "bg-destructive"
+                      : "bg-gray-400"
                 }`}
               />
               <span className="text-sm font-medium">
-                {isSharing
-                  ? `Sharing Live Location on ${getRoute(routeId).name}`
-                  : "Not Sharing"}
+                {t(SHARING_MESSAGES[health])}
+                {health === "sharing" &&
+                  t("driver.sharingOn", { route: getRoute(routeId).name })}
               </span>
             </div>
 
+            {/*
+              Spoken through the shared assertive region rather than by a role
+              on this box - it does not exist until the interruption does, and
+              a live region that appears with its message already inside it is
+              not reliably announced. Colour alone certainly cannot carry it.
+            */}
+            {health === "interrupted" && (
+              <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-3 text-left">
+                <p className="text-sm font-semibold text-destructive">
+                  {t("driver.interrupted.title")}
+                </p>
+                <p className="text-sm text-destructive mt-1">
+                  {t(interruptionReason(wasHidden))}
+                </p>
+              </div>
+            )}
+
             {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                <p className="text-sm text-red-600">{error}</p>
+              <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-3">
+                <p className="text-sm text-destructive">{t(error)}</p>
               </div>
             )}
 
             {coords && (
               <div className="bg-gray-50 p-4 rounded-lg text-sm text-gray-700">
-                <p>Latitude: {coords.latitude}</p>
-                <p>Longitude: {coords.longitude}</p>
+                <p>
+                  {t("driver.latitude")}: {coords.latitude}
+                </p>
+                <p>
+                  {t("driver.longitude")}: {coords.longitude}
+                </p>
               </div>
             )}
 
@@ -188,24 +333,29 @@ const Driver = () => {
               {!isSharing ? (
                 <button
                   onClick={() => void startSharing()}
-                  disabled={!mayPublish}
+                  /*
+                    Nothing to share as, so there is nothing to start. The
+                    note above says why; a live button here would produce a
+                    write the database refuses and an error the driver could
+                    do nothing about.
+                  */
+                  disabled={!mayPublish || !vehicleId}
                   className="px-6 py-3 rounded-xl bg-green-600 text-white font-medium shadow hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Start Sharing
+                  {t("driver.start")}
                 </button>
               ) : (
                 <button
                   onClick={() => void stop()}
-                  className="px-6 py-3 rounded-xl bg-red-500 text-white font-medium shadow hover:bg-red-600 transition"
+                  className="px-6 py-3 rounded-xl bg-destructive text-white font-medium shadow hover:bg-destructive transition"
                 >
-                  Stop Sharing
+                  {t("driver.stop")}
                 </button>
               )}
             </div>
 
             <p className="text-xs text-gray-400">
-              Only your coordinates and this bus label are shared. Your name and
-              email address are never published.
+              {t("driver.privacy")}
             </p>
           </div>
         </div>

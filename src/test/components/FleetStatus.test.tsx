@@ -8,10 +8,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_FRESHNESS } from "@/domain/fleet/state";
 import FleetStatus from "@/components/dashboards/FleetStatus";
-import { ARRIVAL_RULES, POLLING, REMOTE_PATHS } from "@/constants/config";
+import { POLLING, REMOTE_PATHS } from "@/constants/config";
 import { STOP_COORDS } from "@/domain/transit/stops";
-import { toBusId } from "@/services/locationService";
+
 import { act, renderWithProviders, screen, waitFor, within } from "../helpers/render";
 import {
   enableRtdb,
@@ -53,15 +54,52 @@ const seedDriver = (uid: string, name: string) => {
   roster.push(driver(uid, name));
 };
 
-const broadcast = (uid: string, over: Record<string, unknown> = {}) =>
-  seedRtdb(`${REMOTE_PATHS.BUS_LOCATIONS}/${uid}`, {
-    lat: STOP_COORDS["CBD"]!.lat,
-    lng: STOP_COORDS["CBD"]!.lng,
-    updatedAt: Date.now(),
-    busId: toBusId(uid),
-    routeId: "101",
+/** Fixture vehicles. The operator has supplied no fleet list. */
+const vehicleFor = (uid: string) => `fixture-${uid.replace("driver-", "")}`;
+
+const HOUR = 60 * 60 * 1000;
+
+/**
+ * Puts a driver on shift in a vehicle.
+ *
+ * Two records, because the model separates them: the assignment says which
+ * bus this driver may publish as, and the position says where that bus is.
+ * A position with no assignment behind it belongs to no driver, which is
+ * exactly what the operator's table now has to show.
+ */
+const assign = (uid: string, over: Record<string, unknown> = {}) =>
+  seedRtdb(`${REMOTE_PATHS.ASSIGNMENTS}/${uid}`, {
+    vehicleId: vehicleFor(uid),
+    validFrom: Date.now() - HOUR,
+    validTo: Date.now() + 7 * HOUR,
     ...over,
   });
+
+/*
+  A broadcasting driver is an assigned one - the rules do not permit anything
+  else - so seeding a position seeds the assignment that authorises it. Tests
+  wanting one without the other call `assign` on its own.
+*/
+const broadcast = (uid: string, over: Record<string, unknown> = {}) => {
+  assign(uid);
+
+  /*
+    Positions are sharded by route, so the path carries the route and the
+    record does not. `over.routeId` therefore chooses the shard rather than a
+    field - which is what the operator's table reads back.
+  */
+  const { routeId = "101", ...position } = over as { routeId?: string };
+
+  return seedRtdb(
+    `${REMOTE_PATHS.BUS_LOCATIONS}/${routeId}/${vehicleFor(uid)}`,
+    {
+      lat: STOP_COORDS["CBD"]!.lat,
+      lng: STOP_COORDS["CBD"]!.lng,
+      updatedAt: Date.now(),
+      ...position,
+    }
+  );
+};
 
 beforeEach(() => {
   roster.length = 0;
@@ -97,7 +135,7 @@ describe("who may see the fleet", () => {
 });
 
 describe("matching a driver to their vehicle", () => {
-  it("marks a broadcasting driver as on shift", async () => {
+  it("marks a broadcasting driver as live", async () => {
     seedDriver("driver-1", "Asha Verma");
     broadcast("driver-1");
 
@@ -107,7 +145,7 @@ describe("matching a driver to their vehicle", () => {
     await screen.findByText("Asha Verma");
 
     await waitFor(() =>
-      expect(within(rowFor("Asha Verma")).getByText("On shift")).toBeInTheDocument()
+      expect(within(rowFor("Asha Verma")).getByText("Live")).toBeInTheDocument()
     );
   });
 
@@ -120,11 +158,21 @@ describe("matching a driver to their vehicle", () => {
 
     await screen.findByText("Asha Verma");
 
-    expect(within(rowFor("Asha Verma")).getByText(toBusId("driver-1"))).toBeInTheDocument();
+    /*
+      Waited for, not read once. The driver list comes from Firestore and the
+      assignment from the Realtime Database, on separate async paths - so the
+      row can exist a tick before it knows which bus it names.
+    */
+    await waitFor(() =>
+      expect(
+        within(rowFor("Asha Verma")).getByText(vehicleFor("driver-1"))
+      ).toBeInTheDocument()
+    );
+
     expect(screen.queryByText("driver-1")).not.toBeInTheDocument();
   });
 
-  it("marks a driver who is not reporting as offline", async () => {
+  it("says a driver has not started rather than calling them offline", async () => {
     seedDriver("driver-1", "Asha Verma");
 
     renderFleet();
@@ -132,7 +180,7 @@ describe("matching a driver to their vehicle", () => {
 
     await screen.findByText("Asha Verma");
 
-    expect(within(rowFor("Asha Verma")).getByText("Offline")).toBeInTheDocument();
+    expect(within(rowFor("Asha Verma")).getByText("No shift started")).toBeInTheDocument();
   });
 
   it("does not credit one driver with another's bus", async () => {
@@ -146,9 +194,9 @@ describe("matching a driver to their vehicle", () => {
     await screen.findByText("Ravi Kumar");
 
     await waitFor(() =>
-      expect(within(rowFor("Asha Verma")).getByText("On shift")).toBeInTheDocument()
+      expect(within(rowFor("Asha Verma")).getByText("Live")).toBeInTheDocument()
     );
-    expect(within(rowFor("Ravi Kumar")).getByText("Offline")).toBeInTheDocument();
+    expect(within(rowFor("Ravi Kumar")).getByText("No shift started")).toBeInTheDocument();
   });
 
   it("leaves passengers out of the driver list", async () => {
@@ -184,16 +232,28 @@ describe("what the vehicle is doing", () => {
     );
   });
 
-  it("says nothing it cannot know when no route was declared", async () => {
+  /*
+    A bus with no route at all can no longer exist - the route is the path a
+    position is published to, and publishing refuses without one. What CAN
+    still happen is a route this build has never heard of, opened after the
+    app was last deployed. The bus keeps its place in the table and loses only
+    its label, because dropping it would show an operator fewer vehicles than
+    are running.
+  */
+  it("says nothing it cannot know about an unrecognised route", async () => {
     seedDriver("driver-1", "Asha Verma");
-    broadcast("driver-1", { routeId: undefined });
+    broadcast("driver-1", { routeId: "999" });
 
     renderFleet();
     asAdmin();
 
     await screen.findByText("Asha Verma");
 
-    expect(within(rowFor("Asha Verma")).getAllByText("—").length).toBeGreaterThanOrEqual(2);
+    await waitFor(() =>
+      expect(
+        within(rowFor("Asha Verma")).getAllByText("—").length
+      ).toBeGreaterThanOrEqual(1)
+    );
   });
 });
 
@@ -209,7 +269,7 @@ describe("counting the fleet", () => {
     await screen.findByText("Asha Verma");
 
     const drivers = screen.getByText("Driver accounts").closest("div")!;
-    const onShift = screen.getByText("On shift", { selector: "p" }).closest("div")!;
+    const onShift = screen.getByText("Reporting", { selector: "p" }).closest("div")!;
 
     expect(within(drivers).getByText("2")).toBeInTheDocument();
     await waitFor(() => expect(within(onShift).getByText("1")).toBeInTheDocument());
@@ -226,10 +286,10 @@ describe("counting the fleet", () => {
     await screen.findByText("Ravi Kumar");
 
     await waitFor(() =>
-      expect(within(rowFor("Asha Verma")).getByText("On shift")).toBeInTheDocument()
+      expect(within(rowFor("Asha Verma")).getByText("Live")).toBeInTheDocument()
     );
 
-    await user.click(screen.getByRole("button", { name: "On shift" }));
+    await user.click(screen.getByRole("button", { name: "Reporting" }));
 
     expect(screen.getByText("Asha Verma")).toBeInTheDocument();
     expect(screen.queryByText("Ravi Kumar")).not.toBeInTheDocument();
@@ -237,7 +297,16 @@ describe("counting the fleet", () => {
 });
 
 describe("a driver who stops reporting", () => {
-  it("drops off shift on the next check, without a further report", async () => {
+  /*
+    The distinction this whole component was failing to draw.
+
+    `selectFreshBuses` removed a stale vehicle from the array, so a driver
+    whose phone lost signal rendered identically to one who never started a
+    shift - and the operator is the only person who could tell the difference
+    by ringing them. The fleet is now classified rather than filtered, so the
+    evidence survives.
+  */
+  it("says it stopped reporting rather than that it never started", async () => {
     const start = Date.now();
 
     seedDriver("driver-1", "Asha Verma");
@@ -251,15 +320,115 @@ describe("a driver who stops reporting", () => {
 
     await screen.findByText("Asha Verma");
     await waitFor(() =>
-      expect(within(rowFor("Asha Verma")).getByText("On shift")).toBeInTheDocument()
+      expect(within(rowFor("Asha Verma")).getByText("Live")).toBeInTheDocument()
     );
 
     act(() => {
-      vi.setSystemTime(start + ARRIVAL_RULES.STALE_LOCATION_MS + 1);
+      vi.setSystemTime(start + DEFAULT_FRESHNESS.staleMs + 1);
       vi.advanceTimersByTime(POLLING.BUS_FRESHNESS_MS);
     });
 
-    expect(within(rowFor("Asha Verma")).getByText("Offline")).toBeInTheDocument();
+    const row = within(rowFor("Asha Verma"));
+
+    expect(row.getByText("Not reporting")).toBeInTheDocument();
+    expect(row.queryByText("No shift started")).not.toBeInTheDocument();
+  });
+
+  it("passes through delayed before it gives up on the bus", async () => {
+    const start = Date.now();
+
+    seedDriver("driver-1", "Asha Verma");
+    broadcast("driver-1", { updatedAt: start });
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(start);
+
+    renderFleet();
+    asAdmin();
+
+    await screen.findByText("Asha Verma");
+
+    act(() => {
+      vi.setSystemTime(start + DEFAULT_FRESHNESS.recentMs + 1);
+      vi.advanceTimersByTime(POLLING.BUS_FRESHNESS_MS);
+    });
+
+    expect(within(rowFor("Asha Verma")).getByText("Delayed report")).toBeInTheDocument();
+  });
+
+  /*
+    A count the operator can act on: it excludes drivers who never began,
+    because there is nothing to chase there.
+  */
+  it("counts it as needing attention, not merely as absent", async () => {
+    const start = Date.now();
+
+    seedDriver("driver-1", "Asha Verma");
+    seedDriver("driver-2", "Ravi Kumar");
+    broadcast("driver-1", { updatedAt: start });
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(start);
+
+    renderFleet();
+    asAdmin();
+
+    await screen.findByText("Asha Verma");
+
+    act(() => {
+      vi.setSystemTime(start + DEFAULT_FRESHNESS.staleMs + 1);
+      vi.advanceTimersByTime(POLLING.BUS_FRESHNESS_MS);
+    });
+
+    const attention = screen
+      .getByText("Needs attention", { selector: "p" })
+      .closest("div")!;
+
+    expect(within(attention).getByText("1")).toBeInTheDocument();
+  });
+});
+
+describe("fleet health at a glance", () => {
+  it("names every state, including the ones at zero", async () => {
+    seedDriver("driver-1", "Asha Verma");
+    broadcast("driver-1");
+
+    renderFleet();
+    asAdmin();
+
+    await screen.findByText("Asha Verma");
+
+    const strip = screen.getByLabelText(/vehicles by reporting state/i);
+
+    for (const label of [
+      "Live",
+      "Recent",
+      "Delayed report",
+      "Not reporting",
+      "Unknown",
+    ]) {
+      expect(within(strip).getByText(label)).toBeInTheDocument();
+    }
+  });
+
+  /*
+    A missing row reads as "no problem"; a row showing 0 reads as "checked,
+    and there are none". For fleet health those are different claims.
+  */
+  it("shows a zero rather than omitting the state", async () => {
+    seedDriver("driver-1", "Asha Verma");
+    broadcast("driver-1");
+
+    renderFleet();
+    asAdmin();
+
+    await screen.findByText("Asha Verma");
+
+    const strip = screen.getByLabelText(/vehicles by reporting state/i);
+
+    const offline = within(strip).getByText("Not reporting").closest("div")!;
+
+    expect(within(offline).getByText("0")).toBeInTheDocument();
   });
 });
 

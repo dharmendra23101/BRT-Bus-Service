@@ -23,11 +23,29 @@ import { STOPS } from "@/domain/transit/stops";
 const allTrips = [...getTrips("weekday"), ...getTrips("weekend")];
 
 describe("schedule loads", () => {
-  it("builds every authored trip", () => {
-    // The builder drops a row whose times do not line up with its route and
-    // reports it; a shortfall here means the grid and registry disagree.
-    expect(getTrips("weekday")).toHaveLength(33);
-    expect(getTrips("weekend")).toHaveLength(21);
+  it("builds every trip the operator publishes", () => {
+    // Counted from the authoritative shelter timetable. A shortfall means the
+    // generated data and the source have drifted apart.
+    expect(getTrips("weekday", "outbound")).toHaveLength(34);
+    expect(getTrips("weekday", "inbound")).toHaveLength(23);
+    expect(getTrips("weekend", "outbound")).toHaveLength(21);
+    expect(getTrips("weekend", "inbound")).toHaveLength(24);
+  });
+
+  it("defaults to the outbound working, so existing callers are unchanged", () => {
+    expect(getTrips("weekday")).toEqual(getTrips("weekday", "outbound"));
+  });
+
+  /*
+    The return service is a different service, not route 101 backwards: it runs
+    under its own numbers and continues past HNLU to Muktangan before
+    terminating back at HNLU.
+  */
+  it("carries the inbound working under its own route numbers", () => {
+    const inbound = new Set(getTrips("weekday", "inbound").map((t) => t.routeId));
+
+    expect(inbound).toContain("201");
+    expect(inbound).not.toContain("101");
   });
 
   it("gives every trip a unique id", () => {
@@ -96,17 +114,28 @@ describe("which stops the timetable actually serves", () => {
     }
   });
 
-  it("covers the whole of the route the timetable is written against", () => {
-    expect([...SCHEDULED_STOPS].sort()).toEqual(
-      [...getRoute("101").servedStops].sort()
-    );
+  it("covers every stop the outbound route serves", () => {
+    for (const stop of getRoute("101").servedStops) {
+      expect(SCHEDULED_STOPS.has(stop), stop).toBe(true);
+    }
+  });
+
+  /*
+    The inbound working reaches four stops no outbound service calls at, which
+    is why the served set is larger than any single route's stop list.
+  */
+  it("also covers the stops only the inbound working reaches", () => {
+    for (const stop of ["HNLU Gate", "Jungle Safari", "IIIT", "Muktangan"] as const) {
+      expect(SCHEDULED_STOPS.has(stop), stop).toBe(true);
+    }
   });
 
   it("reports the network stops that have no departures yet", () => {
     const unserved = STOPS.filter((stop) => !hasScheduledService(stop));
 
-    expect(unserved).toContain("Jungle Safari");
-    expect(unserved).toContain("IIM");
+    expect(unserved).toContain("Agriculture College");
+    expect(unserved).not.toContain("Jungle Safari");
+    expect(unserved).not.toContain("IIM");
     expect(unserved).not.toContain("HNLU");
     expect(unserved).toHaveLength(STOPS.length - SCHEDULED_STOPS.size);
   });

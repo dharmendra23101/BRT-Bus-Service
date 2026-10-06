@@ -40,6 +40,14 @@ jobs:
           # dependency actually changes.
           cache: npm
 
+      # The Firebase emulators are JVMs, so the rules gate needs a JDK. 21 is
+      # what the Firestore emulator requires.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
       # `npm ci` installs exactly what the lockfile pins and fails if
       # package.json and the lockfile have drifted apart.
       - name: Install dependencies
@@ -50,14 +58,38 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # The domain layer is compiled a second time against a config with no DOM
+      # and no path aliases. That is the whole portability guarantee - it is
+      # what proves the shared layer could be lifted into a React Native or
+      # server build - and it passes or fails independently of the app build.
+      - name: Typecheck domain
+        run: npm run typecheck:domain
+
       - name: Lint
         run: npm run lint
 
       - name: Test with coverage
         run: npm run test:coverage
 
+      # Same tests, node environment, no jsdom. A domain module that reaches
+      # for `window` passes the main suite and fails here.
+      - name: Test domain
+        run: npm run test:domain
+
       - name: Build
         run: npm run build
+
+      # Weighs what a first-time visitor downloads. Runs after the build
+      # because the build is the thing being measured - the chunking strategy
+      # has silently reverted before while the source still read as lazy.
+      - name: Bundle budget
+        run: npm run test:bundle
+
+      # The security rules, run against Firebase's own evaluator rather than
+      # compared to the domain as a document. This is the only gate that can
+      # tell us the rules will behave on deploy day the way they read here.
+      - name: Security rules (emulator)
+        run: npm run test:rules
 
       - name: Upload coverage report
         # Runs even when a gate above failed - the coverage of a failing

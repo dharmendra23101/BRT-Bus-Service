@@ -1,5 +1,6 @@
 import { useId } from "react";
 import { STOPS, type StopName } from "@/domain/transit/stops";
+import { useTranslation } from "@/contexts/LocaleContext";
 
 interface StopFieldProps {
   label: string;
@@ -10,6 +11,8 @@ interface StopFieldProps {
 }
 
 const StopField = ({ label, value, onChange, exclude }: StopFieldProps) => {
+  const { t } = useTranslation();
+
   const ids = useId();
   const fieldId = `${ids}-stop`;
   const listId = `${ids}-stops`;
@@ -29,7 +32,7 @@ const StopField = ({ label, value, onChange, exclude }: StopFieldProps) => {
         type="text"
         value={value}
         autoComplete="off"
-        placeholder="Type to search stops"
+        placeholder={t("stopField.placeholder")}
         onChange={(event) => onChange(event.target.value)}
         className="brt-input touch-target"
       />

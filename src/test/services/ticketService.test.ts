@@ -8,11 +8,14 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { en } from "@/domain/i18n/en";
+import { hi } from "@/domain/i18n/hi";
 import {
   BOOKING_FAILURE_MESSAGES,
   bookTicket,
   cancelTicket,
   fetchRemoteTickets,
+  issueValidatedTicket,
   loadTickets,
   mergeTickets,
   migrateLegacyTicket,
@@ -21,6 +24,7 @@ import {
   pushTicketStatus,
   saveTickets,
   syncTickets,
+  validateBooking,
 } from "@/services/ticketService";
 import {
   at,
@@ -97,11 +101,24 @@ describe("booking rules", () => {
     expect(result).toEqual({ ok: false, reason: "NOT_AUTHENTICATED" });
   });
 
+  /*
+    The registry holds KEYS now, so what a passenger reads is one lookup
+    further on - and there are two languages to read it in. Checking the key
+    strings would pass while a refusal rendered as
+    `booking.failure.storageFailed` on a Hindi screen.
+  */
   it("explains every refusal in words a passenger can act on", () => {
-    for (const message of Object.values(BOOKING_FAILURE_MESSAGES)) {
-      expect(message.length).toBeGreaterThan(10);
-      // No error codes or internals leaking into the UI.
-      expect(message).not.toMatch(/[A-Z]{2,}_[A-Z]{2,}/);
+    for (const key of Object.values(BOOKING_FAILURE_MESSAGES)) {
+      for (const catalogue of [en, hi]) {
+        const message = catalogue[key];
+
+        expect(message.length, key).toBeGreaterThan(10);
+        // No error codes, internals or untranslated keys leaking into the UI.
+        expect(message, key).not.toMatch(/[A-Z]{2,}_[A-Z]{2,}/);
+        /* A key has no spaces and equals itself; a sentence has both. */
+        expect(message, key).not.toBe(key);
+        expect(message, key).toContain(" ");
+      }
     }
   });
 });
@@ -284,6 +301,69 @@ describe("when the device refuses to store anything", () => {
     const result = bookTicket(USER, [], makeDraft(), at(9, 0));
 
     expect(result).toEqual({ ok: false, reason: "STORAGE_FAILED" });
+
+    setItem.mockRestore();
+  });
+});
+
+/*
+  Regression for the ordering defect: every one of these refusals used to fire
+  AFTER the payment had been taken, which is how a passenger ends up debited
+  and then told they already hold an overlapping ticket.
+*/
+describe("the order money and rules run in", () => {
+  it("refuses a departed service without writing anything", () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+
+    const result = validateBooking(USER, [], makeDraft(), at(10, 30));
+
+    expect(result).toEqual({ ok: false, reason: "ALREADY_DEPARTED" });
+    expect(setItem).not.toHaveBeenCalled();
+
+    setItem.mockRestore();
+  });
+
+  it("refuses an overlapping journey without writing anything", () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    const existing = makeTicket();
+
+    const result = validateBooking(USER, [existing], makeDraft(), at(9, 0));
+
+    expect(result).toEqual({ ok: false, reason: "OVERLAPPING_TICKET" });
+    expect(setItem).not.toHaveBeenCalled();
+
+    setItem.mockRestore();
+  });
+
+  it("hands back a ticket to pay for without storing it yet", () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+
+    const result = validateBooking(USER, [], makeDraft(), at(9, 0));
+
+    expect(result.ok).toBe(true);
+    expect(setItem).not.toHaveBeenCalled();
+
+    setItem.mockRestore();
+  });
+
+  it("never withholds a paid-for ticket, even when storage refuses it", () => {
+    const validated = validateBooking(USER, [], makeDraft(), at(9, 0));
+
+    if (!validated.ok) throw new Error("expected the journey to validate");
+
+    const setItem = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new DOMException("full", "QuotaExceededError");
+      });
+
+    const issued = issueValidatedTicket(USER, [], validated.ticket);
+
+    // The money has moved by this point, so a full disk may report a problem
+    // but must never destroy the ticket.
+    expect(issued.persisted).toBe(false);
+    expect(issued.ticket).toEqual(validated.ticket);
+    expect(issued.tickets).toContainEqual(validated.ticket);
 
     setItem.mockRestore();
   });

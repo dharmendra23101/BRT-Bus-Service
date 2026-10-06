@@ -11,7 +11,7 @@
  * they are verified separately against the Firestore emulator.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   MAX_USERS_PER_READ,
   createUserRecord,
@@ -24,6 +24,7 @@ import {
 import { AuthorizationError } from "@/domain/auth/errors";
 import type { Actor } from "@/types/user";
 import { makeUser, readDoc, seedDoc, timestamp } from "../helpers/firebase";
+import { REMOTE_PATHS } from "@/constants/config";
 
 const admin: Actor = { uid: "admin-1", role: "admin" };
 const passenger: Actor = { uid: "user-1", role: "user" };
@@ -160,6 +161,40 @@ describe("assigning roles", () => {
 
   it("refuses a signed-out caller", async () => {
     expect((await updateUserRole(null, "victim", "admin")).ok).toBe(false);
+  });
+
+  /*
+    `users` keeps only the CURRENT role, so without this entry the transition
+    is lost the moment it happens - there is nowhere else in the system that
+    records who changed somebody's access, or from what.
+  */
+  it("records who changed the role, and from what", async () => {
+    seedDoc("users", "user-1", { role: "user" });
+
+    await updateUserRole(admin, "user-1", "driver");
+
+    await vi.waitFor(() =>
+      expect(readDoc(REMOTE_PATHS.AUDIT_LOG, "generated-1")).toMatchObject({
+        actorUid: admin.uid,
+        action: "ROLE_CHANGED",
+        subject: "user-1",
+        detail: "user -> driver",
+      })
+    );
+  });
+
+  /*
+    The role has already moved by the time the record is attempted. Reporting
+    the whole operation as failed would send an administrator to retry a
+    change that already happened.
+  */
+  it("still reports success when the record cannot be written", async () => {
+    seedDoc("users", "user-1", { role: "user" });
+
+    const result = await updateUserRole(admin, "user-1", "driver");
+
+    expect(result.ok).toBe(true);
+    expect(readDoc("users", "user-1")).toMatchObject({ role: "driver" });
   });
 
   it("lets an admin change a role", async () => {

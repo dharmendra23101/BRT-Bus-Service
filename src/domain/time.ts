@@ -42,6 +42,13 @@ export const formatCountdown = (ms: number): string => {
   return `${hours}h ${minutes}m ${seconds}s`;
 };
 
-/** Local-format date for display, e.g. "22/07/2026". */
-export const formatDate = (iso: string): string =>
-  new Date(iso).toLocaleDateString();
+/**
+ * A date for a person to read, e.g. "22/07/2026".
+ *
+ * Takes the locale rather than reading the device's. Without it a passenger
+ * who chose Hindi on an American phone got a Hindi interface printing
+ * `7/22/2026`, which follows a setting they did not touch instead of the one
+ * they did.
+ */
+export const formatDate = (iso: string, locale = "en-GB"): string =>
+  new Date(iso).toLocaleDateString(locale);

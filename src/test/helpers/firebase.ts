@@ -94,6 +94,13 @@ export const resetFirebaseMocks = (): void => {
   state.listeners.clear();
   state.nextAuthError = null;
   docs.clear();
+  /*
+    The generated-id counter has to go back with the documents. Without this it
+    kept climbing across a file, so `readDoc("…", "generated-1")` only found
+    anything in whichever test happened to write the first document - and any
+    later test asserting on what it published silently read undefined.
+  */
+  generatedDocs = 0;
   resetRtdbMock();
 };
 
@@ -193,7 +200,7 @@ const rtdb = {
   failNextSubscription: false,
   nodes: new Map<string, unknown>(),
   listeners: new Map<string, Set<(snapshot: unknown) => void>>(),
-  onDisconnects: new Map<string, "remove">(),
+  onDisconnects: new Map<string, DisconnectAction>(),
 };
 
 /** Switches the in-memory database on for the current test. */
@@ -211,23 +218,55 @@ export const readRtdb = (path: string): unknown => rtdb.nodes.get(path);
 
 /** Whether the server has been asked to clear a node if the driver drops. */
 export const hasDisconnectCleanup = (path: string): boolean =>
-  rtdb.onDisconnects.get(path) === "remove";
+  rtdb.onDisconnects.get(path)?.op === "remove";
+
+/** The value the server would write to `path` if the connection dropped now. */
+export const disconnectWrite = (path: string): unknown => {
+  const action = rtdb.onDisconnects.get(path);
+
+  return action?.op === "set" ? action.value : undefined;
+};
 
 /** Runs what the server would run when a connection is lost. */
 export const dropRtdbConnection = (): void => {
-  for (const path of [...rtdb.onDisconnects.keys()]) {
-    rtdb.nodes.delete(path);
+  for (const [path, action] of [...rtdb.onDisconnects]) {
+    if (action.op === "remove") rtdb.nodes.delete(path);
+    else rtdb.nodes.set(path, resolveServerValues(action.value, { any: false }));
+
     rtdb.onDisconnects.delete(path);
     notifyRtdb(path);
   }
 };
 
+type DisconnectAction = { op: "remove" } | { op: "set"; value: unknown };
+
+/**
+ * The subtree under `path`, nested the way the database returns it.
+ *
+ * This used to build a FLAT map keyed by the remaining path, so a two-level
+ * node came back as `{"101/bus-1": {...}}` where Firebase returns
+ * `{"101": {"bus-1": {...}}}`. Nothing noticed while every node was one level
+ * deep; the day positions were sharded by route, the subscription simply
+ * delivered nothing and the mock was the only thing lying.
+ */
 const childrenOf = (path: string): Record<string, unknown> => {
   const prefix = `${path}/`;
   const children: Record<string, unknown> = {};
 
   for (const [key, value] of rtdb.nodes) {
-    if (key.startsWith(prefix)) children[key.slice(prefix.length)] = value;
+    if (!key.startsWith(prefix)) continue;
+
+    const segments = key.slice(prefix.length).split("/");
+    const leaf = segments.pop()!;
+
+    let level = children;
+
+    for (const segment of segments) {
+      level[segment] ??= {};
+      level = level[segment] as Record<string, unknown>;
+    }
+
+    level[leaf] = value;
   }
 
   return children;
@@ -258,7 +297,74 @@ export const resetRtdbMock = (): void => {
   rtdb.nodes.clear();
   rtdb.listeners.clear();
   rtdb.onDisconnects.clear();
+  serverStamped.clear();
 };
+
+/** The wire form of a request for the database's own clock. */
+const SERVER_TIMESTAMP = { ".sv": "timestamp" } as const;
+
+/** Firestore's sentinel, and what the server resolves it to. */
+const FIRESTORE_SERVER_TIME = { __serverTime: true } as const;
+
+const isFirestoreSentinel = (value: unknown): boolean =>
+  typeof value === "object" &&
+  value !== null &&
+  (value as Record<string, unknown>).__serverTime === true;
+
+const resolveFirestoreSentinels = (
+  data: Record<string, unknown>
+): Record<string, unknown> =>
+  Object.fromEntries(
+    Object.entries(data).map(([key, value]) => [
+      key,
+      isFirestoreSentinel(value) ? new Date() : value,
+    ])
+  );
+
+const isServerTimestamp = (value: unknown): boolean =>
+  typeof value === "object" &&
+  value !== null &&
+  (value as Record<string, unknown>)[".sv"] === "timestamp";
+
+/**
+ * Resolves server sentinels the way the database does, on write.
+ *
+ * Storing the sentinel verbatim would make the mock lie: readers would find
+ * `{".sv":"timestamp"}` where production finds a number, and every freshness
+ * assertion would be testing a shape that never reaches a real client.
+ */
+const resolveServerValues = (
+  value: unknown,
+  found: { any: boolean }
+): unknown => {
+  if (isServerTimestamp(value)) {
+    found.any = true;
+
+    return Date.now();
+  }
+
+  if (typeof value !== "object" || value === null) return value;
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+      key,
+      resolveServerValues(entry, found),
+    ])
+  );
+};
+
+/**
+ * Paths whose last write asked the server for the time.
+ *
+ * The resolved value is an ordinary number, so a test cannot tell from the
+ * stored record whether the client chose it or the database did - and that
+ * difference is the entire point of writing a sentinel. This remembers it.
+ */
+const serverStamped = new Set<string>();
+
+/** Whether the most recent write to `path` let the server set the time. */
+export const wasServerStamped = (path: string): boolean =>
+  serverStamped.has(path);
 
 /** Replacement for the `firebase/database` module. */
 export const firebaseDatabaseMock = () => ({
@@ -266,8 +372,16 @@ export const firebaseDatabaseMock = () => ({
 
   ref: vi.fn((_db: unknown, path: string): RtdbRef => ({ path })),
 
+  serverTimestamp: vi.fn(() => SERVER_TIMESTAMP),
+
   set: vi.fn(async (node: RtdbRef, value: unknown) => {
-    rtdb.nodes.set(node.path, value);
+    const found = { any: false };
+
+    rtdb.nodes.set(node.path, resolveServerValues(value, found));
+
+    if (found.any) serverStamped.add(node.path);
+    else serverStamped.delete(node.path);
+
     notifyRtdb(node.path);
   }),
 
@@ -276,9 +390,18 @@ export const firebaseDatabaseMock = () => ({
     notifyRtdb(node.path);
   }),
 
+  /*
+    The registration, not the effect. These record what the server WOULD do if
+    this connection dropped; `dropRtdbConnection` is what runs them - which is
+    the only way a test can exercise a path whose whole point is that no
+    client is around to take it.
+  */
   onDisconnect: vi.fn((node: RtdbRef) => ({
     remove: vi.fn(async () => {
-      rtdb.onDisconnects.set(node.path, "remove");
+      rtdb.onDisconnects.set(node.path, { op: "remove" });
+    }),
+    set: vi.fn(async (value: unknown) => {
+      rtdb.onDisconnects.set(node.path, { op: "set", value });
     }),
   })),
 
@@ -392,7 +515,7 @@ export const firestoreMock = () => ({
     async (source: { collection: string }, data: Record<string, unknown>) => {
       const id = `generated-${++generatedDocs}`;
 
-      docs.set(`${source.collection}/${id}`, data);
+      docs.set(`${source.collection}/${id}`, resolveFirestoreSentinels(data));
 
       return { id };
     }
@@ -400,7 +523,21 @@ export const firestoreMock = () => ({
 
   collection: vi.fn((_db: unknown, name: string) => ({ collection: name })),
 
+  /*
+    Firestore resolves its sentinel server-side too, so the stored value is a
+    Date rather than the marker. A test asserting on the stored record must
+    not be able to tell a client timestamp from a server one - which is the
+    same reason the Realtime Database mock records that a sentinel was used.
+  */
+  serverTimestamp: vi.fn(() => FIRESTORE_SERVER_TIME),
+
   limit: vi.fn((count: number) => ({ kind: "limit" as const, count })),
+
+  orderBy: vi.fn((field: string, direction: "asc" | "desc" = "asc") => ({
+    kind: "orderBy" as const,
+    field,
+    direction,
+  })),
 
   where: vi.fn((field: string, _op: string, value: unknown) => ({
     kind: "where" as const,
@@ -420,6 +557,9 @@ export const firestoreMock = () => ({
     ) => ({
       collection: source.collection,
       limit: constraints.find((c) => c.kind === "limit")?.count ?? Infinity,
+      order: constraints.find((c) => c.kind === "orderBy") as
+        | { field: string; direction: "asc" | "desc" }
+        | undefined,
       wheres: constraints.filter((c) => c.kind === "where") as Array<{
         field: string;
         value: unknown;
@@ -432,19 +572,41 @@ export const firestoreMock = () => ({
       collection: string;
       limit: number;
       wheres?: Array<{ field: string; value: unknown }>;
+      order?: { field: string; direction: "asc" | "desc" };
     }) => {
-      const entries = [...docs.entries()]
+      const matching = [...docs.entries()]
         .filter(([path]) => path.startsWith(`${q.collection}/`))
         .filter(([, data]) =>
           (q.wheres ?? []).every((clause) => data[clause.field] === clause.value)
-        )
-        .slice(0, q.limit);
+        );
+
+      /*
+        Ordering is applied before the limit, as the database does. Slicing
+        first and sorting after would return the OLDEST rows in a newest-first
+        query, which reads as a working screen showing the wrong decade.
+      */
+      if (q.order) {
+        const { field, direction } = q.order;
+
+        matching.sort(([, a], [, b]) => {
+          const left = Number(a[field] ?? 0);
+          const right = Number(b[field] ?? 0);
+
+          return direction === "desc" ? right - left : left - right;
+        });
+      }
+
+      const entries = matching.slice(0, q.limit);
+
+      const snapshotDocs = entries.map(([path, data]) => ({
+        id: path.split("/")[1]!,
+        data: () => data,
+      }));
 
       return {
-        docs: entries.map(([path, data]) => ({
-          id: path.split("/")[1]!,
-          data: () => data,
-        })),
+        docs: snapshotDocs,
+        forEach: (visit: (entry: (typeof snapshotDocs)[number]) => void) =>
+          snapshotDocs.forEach(visit),
       };
     }
   ),

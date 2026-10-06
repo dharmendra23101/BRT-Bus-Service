@@ -230,3 +230,24 @@ describe("signing out", () => {
     expect(await screen.findByText("sign in page")).toBeInTheDocument();
   });
 });
+
+describe("naming money the way India does", () => {
+  /*
+    Nav icons are aria-hidden, so no accessible query can reach them and the
+    glyph could change - or silently fail to change - with the whole suite
+    still green. The class lucide emits is the only handle there is.
+  */
+  it("marks Fares with a rupee, never a dollar", () => {
+    renderWithProviders(<Header />, { route: "/" });
+
+    const fares = within(mainNav()).getByRole("link", { name: "Fares" });
+
+    expect(fares.querySelector("svg")).toHaveClass("lucide-indian-rupee");
+  });
+
+  it("leaves no dollar sign anywhere in the chrome", () => {
+    renderWithProviders(<Header />, { route: "/" });
+
+    expect(document.querySelector(".lucide-dollar-sign")).toBeNull();
+  });
+});

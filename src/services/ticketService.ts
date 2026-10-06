@@ -19,6 +19,8 @@ import { findConflictingTicket } from "@/domain/ticket/conflicts";
 import { createTicket } from "@/domain/ticket/factory";
 import { isLiveStatus } from "@/domain/ticket/status";
 import { getArrivalAt, getDepartureAt } from "@/domain/ticket/timing";
+import type { TranslationKey } from "@/domain/i18n/en";
+
 import type { Ticket, TicketDraft } from "@/domain/ticket/types";
 import { ticketSchema, unknownArraySchema } from "@/domain/validation/schemas";
 import {
@@ -270,28 +272,51 @@ export type BookingResult =
   | { ok: false; reason: BookingFailure };
 
 /** Why a booking was refused, in words a passenger can act on. */
-export const BOOKING_FAILURE_MESSAGES: Record<BookingFailure, string> = {
-  NOT_AUTHENTICATED: "Please sign in to book a ticket.",
-  ALREADY_DEPARTED: "This service has already departed. Please choose a later bus.",
-  OVERLAPPING_TICKET:
-    "You already hold a ticket for a journey that overlaps this one.",
-  INVALID_JOURNEY: "That journey is not valid. Please reselect your stops.",
-  STORAGE_FAILED: "Your ticket could not be saved. Your device storage may be full.",
+export const BOOKING_FAILURE_MESSAGES: Record<BookingFailure, TranslationKey> = {
+  NOT_AUTHENTICATED: "booking.failure.notAuthenticated",
+  ALREADY_DEPARTED: "booking.failure.alreadyDeparted",
+  OVERLAPPING_TICKET: "booking.failure.overlapping",
+  INVALID_JOURNEY: "booking.failure.invalidJourney",
+  STORAGE_FAILED: "booking.failure.storageFailed",
 };
 
+/** A journey that passed every booking rule and may now be paid for. */
+export type BookingValidation =
+  | { ok: true; ticket: Ticket }
+  | { ok: false; reason: BookingFailure };
+
+/** The outcome of persisting a ticket that has already been paid for. */
+export interface IssuedTicket {
+  ticket: Ticket;
+  tickets: Ticket[];
+  /**
+   * Whether the ticket reached storage.
+   *
+   * False is not a refusal. Once payment has been taken the passenger owns
+   * the ticket, so it is returned either way and the caller warns rather than
+   * discarding it.
+   */
+  persisted: boolean;
+}
+
 /**
- * Applies the booking rules and persists the ticket.
+ * Applies every booking rule without writing anything.
+ *
+ * This runs BEFORE payment. The order matters more than it looks: each of
+ * these refusals used to fire after the money had moved, which is how a
+ * passenger ends up debited and then told they already hold an overlapping
+ * ticket.
  *
  * The freshly built ticket is validated against the same schema used on read,
  * so a journey assembled from bad UI state is rejected at the boundary rather
  * than becoming a permanently malformed record.
  */
-export const bookTicket = (
+export const validateBooking = (
   userId: string,
   existing: Ticket[],
   draft: TicketDraft,
   now = new Date()
-): BookingResult => {
+): BookingValidation => {
   if (!userId || draft.userId !== userId) {
     return { ok: false, reason: "NOT_AUTHENTICATED" };
   }
@@ -314,13 +339,46 @@ export const bookTicket = (
 
   if (conflict) return { ok: false, reason: "OVERLAPPING_TICKET" };
 
+  return { ok: true, ticket };
+};
+
+/**
+ * Persists a ticket that has already been validated and paid for.
+ *
+ * Total by construction: it has no failure branch, because there is no
+ * acceptable way to refuse a passenger a ticket they have paid for.
+ */
+export const issueValidatedTicket = (
+  userId: string,
+  existing: Ticket[],
+  ticket: Ticket
+): IssuedTicket => {
   const tickets = [ticket, ...existing];
 
-  if (!saveTickets(userId, tickets)) {
-    return { ok: false, reason: "STORAGE_FAILED" };
-  }
+  return { ticket, tickets, persisted: saveTickets(userId, tickets) };
+};
 
-  return { ok: true, ticket, tickets };
+/**
+ * Validates and persists in one step, for callers that take no payment.
+ *
+ * A payment flow must not use this: it has to validate, take the money, then
+ * issue, so a rule can never refuse after the money has moved.
+ */
+export const bookTicket = (
+  userId: string,
+  existing: Ticket[],
+  draft: TicketDraft,
+  now = new Date()
+): BookingResult => {
+  const validation = validateBooking(userId, existing, draft, now);
+
+  if (!validation.ok) return validation;
+
+  const issued = issueValidatedTicket(userId, existing, validation.ticket);
+
+  if (!issued.persisted) return { ok: false, reason: "STORAGE_FAILED" };
+
+  return { ok: true, ticket: issued.ticket, tickets: issued.tickets };
 };
 
 /**

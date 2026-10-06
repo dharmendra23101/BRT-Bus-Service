@@ -16,7 +16,7 @@ import {
   waitFor,
   within,
 } from "../helpers/render";
-import { makeUser, signInAs, timestamp } from "../helpers/firebase";
+import { makeUser, seedDoc, signInAs, timestamp } from "../helpers/firebase";
 import { setMockRole } from "../helpers/userService";
 
 vi.mock("@/services/userService", async () => {
@@ -215,7 +215,16 @@ describe("when a record is incomplete", () => {
     await showPanel();
 
     expect(screen.getByText("nameless")).toBeInTheDocument();
-    expect(screen.getByText("Unknown")).toBeInTheDocument();
+
+    /*
+      Scoped to the roster table. "Unknown" is also a vehicle-reporting state
+      in the fleet panel above, so an unscoped query matches whichever the
+      test did not mean - and would have passed for the wrong reason if the
+      fallback ever broke.
+    */
+    const roster_table = screen.getByRole("table", { name: /registered users/i });
+
+    expect(within(roster_table).getByText("Unknown")).toBeInTheDocument();
   });
 
   it("shows the joined date, and N/A when there is none", async () => {
@@ -321,6 +330,23 @@ describe("changing somebody's role", () => {
 
   const roleSelect = (name: string) =>
     screen.getByRole("combobox", { name: `Role for ${name}` });
+
+  /*
+    The gap this closes is not cosmetic. The Realtime Database gates position
+    writes on `driverAllowlist`, which no client may write and which
+    `setUserRole` does not touch, so the role granted here does not let anyone
+    broadcast. An administrator who was told otherwise would hand out a driver
+    account and then have no reason to look for the missing half.
+  */
+  it("says that the driver role alone does not enable broadcasting", async () => {
+    await showPanel();
+
+    const note = screen.getByRole("note");
+
+    expect(note).toHaveTextContent(/driver role is not enough on its own/i);
+    expect(note).toHaveTextContent(/driverAllowlist/);
+    expect(note).toHaveTextContent(/Firebase console/i);
+  });
 
   it("offers every role the system recognises", async () => {
     const { user } = await showPanel();
@@ -486,5 +512,82 @@ describe("reaching the panel without a pointer", () => {
         screen.getByRole("button", { name: `Edit role for ${name}` })
       ).toBeInTheDocument();
     }
+  });
+});
+
+/*
+  The administrative record, made readable.
+
+  A write-only log satisfies the rule that nothing may be rewritten and
+  answers nobody's question. This is the only place in the app where "who
+  changed this account's access, and when?" can be asked.
+*/
+describe("the record of administrative acts", () => {
+  const seedEntry = (id: string, over: Record<string, unknown> = {}) =>
+    seedDoc("auditLog", id, {
+      actorUid: "admin-1",
+      at: { toDate: () => new Date("2026-09-01T10:00:00.000Z") },
+      action: "ROLE_CHANGED",
+      subject: "rider-1",
+      detail: "user -> driver",
+      ...over,
+    });
+
+  it("shows what changed, who changed it and when", async () => {
+    seedEntry("a1");
+
+    await showPanel();
+
+    expect(await screen.findByText(/Role changed/)).toBeInTheDocument();
+    expect(screen.getByText("rider-1")).toBeInTheDocument();
+    expect(screen.getByText(/user -> driver/)).toBeInTheDocument();
+  });
+
+  it("names a published notice as its own kind of act", async () => {
+    seedEntry("a1", {
+      action: "ANNOUNCEMENT_PUBLISHED",
+      subject: "notice-7",
+      detail: "CRITICAL: Services suspended",
+    });
+
+    await showPanel();
+
+    expect(await screen.findByText(/Notice published/)).toBeInTheDocument();
+  });
+
+  /*
+    Nothing recorded is an ordinary state for a fresh deployment, and showing
+    an error there would send an administrator looking for a fault that does
+    not exist.
+  */
+  it("says nothing has been recorded rather than reporting a fault", async () => {
+    await showPanel();
+
+    expect(
+      await screen.findByText(/No administrative changes have been recorded/i)
+    ).toBeInTheDocument();
+  });
+
+  it("promises that entries cannot be edited or removed", async () => {
+    await showPanel();
+
+    expect(
+      await screen.findByText(/cannot be edited or removed/i)
+    ).toBeInTheDocument();
+  });
+
+  /*
+    A record whose server timestamp has not resolved yet is real, not broken.
+    Rendering the missing value as a date would put an administrative act in
+    1970.
+  */
+  it("omits the time rather than inventing one when it is missing", async () => {
+    seedEntry("a1", { at: null });
+
+    await showPanel();
+
+    await screen.findByText(/Role changed/);
+
+    expect(screen.queryByText(/1970/)).not.toBeInTheDocument();
   });
 });

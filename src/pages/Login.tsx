@@ -2,6 +2,9 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/LiveAnnouncer";
 import { useAuth } from "@/contexts/AuthContext";
+import { useTranslation } from "@/contexts/LocaleContext";
+import { isTranslationKey } from "@/domain/i18n/strings";
+import type { TranslationKey } from "@/domain/i18n/en";
 import {
 	emailSchema,
 	fieldErrors,
@@ -25,36 +28,62 @@ interface FieldProps {
  * disappears the moment the user types and is not reliably announced. A real
  * <label> fixes both (WCAG 3.3.2).
  */
-const Field = ({ id, label, error, children }: FieldProps) => (
+const Field = ({ id, label, error, children }: FieldProps) => {
+	const { t } = useTranslation();
+
+	return (
 	<div className="w-full mb-3">
 		<label htmlFor={id} className="block text-sm font-medium text-foreground mb-1">
 			{label}
-			<span className="text-red-500" aria-hidden="true">
+			<span className="text-destructive" aria-hidden="true">
 				{" "}
 				*
 			</span>
-			<span className="sr-only"> (required)</span>
+			<span className="sr-only">{t("field.required")}</span>
 		</label>
 
 		{children}
 
 		{error && (
-			<p id={`${id}-error`} className="text-xs text-red-600 mt-1">
+			<p id={`${id}-error`} className="text-xs text-destructive mt-1">
 				{error}
 			</p>
 		)}
 	</div>
-);
+	);
+};
+
+/**
+ * A validation message as a key, or nothing.
+ *
+ * Every message these schemas declare is a key. Zod supplies its own English
+ * for a rule nobody gave a message to, and that must not reach a passenger as
+ * `validation.email.required` - so anything unrecognised becomes the generic
+ * one rather than being rendered raw.
+ */
+const asKey = (message: string | undefined): TranslationKey | "" => {
+	if (!message) return "";
+
+	return isTranslationKey(message) ? message : "validation.generic";
+};
 
 const inputClass = (hasError: boolean) =>
 	`w-full bg-secondary rounded-lg px-4 py-2.5 border-2 transition-colors ${
-		hasError ? "border-red-500" : "border-transparent focus:border-purple-400"
+		hasError ? "border-destructive" : "border-transparent focus:border-primary"
 	}`;
 
 const Login = () => {
 	// Redirecting an already-signed-in visitor is the route guard's job.
 	const { signIn, signUp, signInWithGoogle, resetPassword } = useAuth();
 	const announce = useAnnounce();
+	const { t } = useTranslation();
+
+	/*
+		Errors travel as keys and become words here. The schema that detects a
+		problem and the mapper that classifies an auth failure both run in a
+		domain with no idea which language anybody is reading in.
+	*/
+	const say = (key: TranslationKey | "") => (key ? t(key) : "");
 
 	/**
 	 * Only one layout is mounted at a time.
@@ -78,22 +107,22 @@ const Login = () => {
 	const [signInEmail, setSignInEmail] = useState("");
 	const [signInPass, setSignInPass] = useState("");
 	const [showSignInPass, setShowSignInPass] = useState(false);
-	const [signInEmailError, setSignInEmailError] = useState("");
-	const [signInPassError, setSignInPassError] = useState("");
+	const [signInEmailError, setSignInEmailError] = useState<TranslationKey | "">("");
+	const [signInPassError, setSignInPassError] = useState<TranslationKey | "">("");
 
 	const [signUpName, setSignUpName] = useState("");
 	const [signUpEmail, setSignUpEmail] = useState("");
 	const [signUpPass, setSignUpPass] = useState("");
 	const [showSignUpPass, setShowSignUpPass] = useState(false);
-	const [signUpNameError, setSignUpNameError] = useState("");
-	const [signUpEmailError, setSignUpEmailError] = useState("");
-	const [signUpPassError, setSignUpPassError] = useState("");
+	const [signUpNameError, setSignUpNameError] = useState<TranslationKey | "">("");
+	const [signUpEmailError, setSignUpEmailError] = useState<TranslationKey | "">("");
+	const [signUpPassError, setSignUpPassError] = useState<TranslationKey | "">("");
 
 	const [resetEmail, setResetEmail] = useState("");
-	const [resetEmailError, setResetEmailError] = useState("");
+	const [resetEmailError, setResetEmailError] = useState<TranslationKey | "">("");
 	const [resetSent, setResetSent] = useState(false);
 
-	const [error, setError] = useState("");
+	const [error, setError] = useState<TranslationKey | "">("");
 	const [loadingAuth, setLoadingAuth] = useState(false);
 
 	const ids = useId();
@@ -122,20 +151,20 @@ const Login = () => {
 
 		if (!parsed.success) {
 			const errors = fieldErrors(parsed.error);
-			setSignInEmailError(errors.email ?? "");
-			setSignInPassError(errors.password ?? "");
+			setSignInEmailError(asKey(errors.email));
+			setSignInPassError(asKey(errors.password));
 
 			// Focus the first field that failed, so a keyboard user lands on
 			// the thing they need to fix rather than hunting for it.
 			if (errors.email) signInEmailRef.current?.focus();
 			else if (errors.password) signInPassRef.current?.focus();
 
-			announce("There is a problem with the sign-in form.", "assertive");
+			announce(t("login.announce.signInProblem"), "assertive");
 			return;
 		}
 
 		setLoadingAuth(true);
-		announce("Signing you in…");
+		announce(t("login.announce.signingIn"));
 
 		const message = await signIn(parsed.data.email, parsed.data.password);
 
@@ -143,7 +172,7 @@ const Login = () => {
 
 		if (message) {
 			setError(message);
-			announce(message, "assertive");
+			announce(t(message), "assertive");
 		}
 	};
 
@@ -163,20 +192,20 @@ const Login = () => {
 
 		if (!parsed.success) {
 			const errors = fieldErrors(parsed.error);
-			setSignUpNameError(errors.name ?? "");
-			setSignUpEmailError(errors.email ?? "");
-			setSignUpPassError(errors.password ?? "");
+			setSignUpNameError(asKey(errors.name));
+			setSignUpEmailError(asKey(errors.email));
+			setSignUpPassError(asKey(errors.password));
 
 			if (errors.name) signUpNameRef.current?.focus();
 			else if (errors.email) signUpEmailRef.current?.focus();
 			else if (errors.password) signUpPassRef.current?.focus();
 
-			announce("There is a problem with the sign-up form.", "assertive");
+			announce(t("login.announce.signUpProblem"), "assertive");
 			return;
 		}
 
 		setLoadingAuth(true);
-		announce("Creating your account…");
+		announce(t("login.announce.creating"));
 
 		const message = await signUp(parsed.data.name, parsed.data.email, parsed.data.password);
 
@@ -184,7 +213,7 @@ const Login = () => {
 
 		if (message) {
 			setError(message);
-			announce(message, "assertive");
+			announce(t(message), "assertive");
 		}
 	};
 
@@ -197,9 +226,9 @@ const Login = () => {
 		const parsed = emailSchema.safeParse(resetEmail);
 
 		if (!parsed.success) {
-			setResetEmailError(parsed.error.issues[0]?.message ?? "Please check your email.");
+			setResetEmailError(asKey(parsed.error.issues[0]?.message));
 			resetEmailRef.current?.focus();
-			announce("There is a problem with the reset form.", "assertive");
+			announce(t("login.announce.resetProblem"), "assertive");
 			return;
 		}
 
@@ -211,12 +240,12 @@ const Login = () => {
 
 		if (message) {
 			setError(message);
-			announce(message, "assertive");
+			announce(t(message), "assertive");
 			return;
 		}
 
 		setResetSent(true);
-		announce("If that email has an account, a reset link is on its way.");
+		announce(t("login.announce.resetSent"));
 	};
 
 	const handleGoogleLogin = async () => {
@@ -229,7 +258,7 @@ const Login = () => {
 
 		if (message) {
 			setError(message);
-			announce(message, "assertive");
+			announce(t(message), "assertive");
 		}
 	};
 
@@ -255,8 +284,8 @@ const Login = () => {
 	};
 
 	const errorBanner = error ? (
-		<div className="w-full mb-3 p-3 bg-red-50 border border-red-200 rounded-lg" role="alert">
-			<p className="text-xs text-red-700 text-center">{error}</p>
+		<div className="w-full mb-3 p-3 bg-destructive/10 border border-destructive/30 rounded-lg" role="alert">
+			<p className="text-xs text-destructive text-center">{say(error)}</p>
 		</div>
 	) : null;
 
@@ -265,7 +294,7 @@ const Login = () => {
 			type="button"
 			onClick={onToggle}
 			className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-md text-muted-foreground hover:text-foreground transition-colors"
-			aria-label={shown ? "Hide password" : "Show password"}
+			aria-label={shown ? t("login.hidePassword") : t("login.showPassword")}
 			aria-pressed={shown}
 		>
 			{shown ? (
@@ -278,11 +307,11 @@ const Login = () => {
 
 	const signInForm = (
 		<form onSubmit={handleSignIn} noValidate className="w-full flex flex-col items-center">
-			<h1 className="text-2xl font-bold mb-3">Sign in</h1>
+			<h1 className="text-2xl font-bold mb-3">{t("login.signIn.title")}</h1>
 
 			{errorBanner}
 
-			<Field id={signInEmailId} label="Email" error={signInEmailError}>
+			<Field id={signInEmailId} label={t("login.email")} error={say(signInEmailError)}>
 				<input
 					ref={signInEmailRef}
 					id={signInEmailId}
@@ -301,7 +330,7 @@ const Login = () => {
 				/>
 			</Field>
 
-			<Field id={signInPassId} label="Password" error={signInPassError}>
+			<Field id={signInPassId} label={t("login.password")} error={say(signInPassError)}>
 				<div className="relative">
 					<input
 						ref={signInPassRef}
@@ -328,7 +357,7 @@ const Login = () => {
 				className="w-full bg-primary text-primary-foreground px-10 py-2.5 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity touch-target inline-flex items-center justify-center gap-2"
 			>
 				{loadingAuth && <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />}
-				{loadingAuth ? "Signing in…" : "Sign in"}
+				{loadingAuth ? t("login.signIn.pending") : t("login.signIn.action")}
 			</button>
 
 			<button
@@ -338,29 +367,28 @@ const Login = () => {
 				className="w-full mt-3 border-2 border-border px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed hover:bg-secondary transition-colors flex items-center justify-center gap-2 touch-target"
 			>
 				<span aria-hidden="true">🔵</span>
-				Continue with Google
+				{t("login.google")}
 			</button>
 			<button
 				type="button"
 				onClick={() => showReset(true)}
 				className="mt-3 text-sm font-semibold text-primary underline underline-offset-2"
 			>
-				Forgot password?
+				{t("login.forgot")}
 			</button>
 		</form>
 	);
 
 	const resetForm = (
 		<form onSubmit={handleReset} noValidate className="w-full flex flex-col items-center">
-			<h1 className="text-2xl font-bold mb-3">Reset password</h1>
+			<h1 className="text-2xl font-bold mb-3">{t("login.reset.title")}</h1>
 
 			{errorBanner}
 
 			{resetSent ? (
 				<>
 					<p className="w-full mb-4 text-sm text-muted-foreground text-center" role="status">
-						If an account exists for {resetEmail}, a password reset link is on its
-						way. Check your inbox and spam folder.
+						{t("login.reset.sent", { email: resetEmail })}
 					</p>
 
 					<button
@@ -368,16 +396,16 @@ const Login = () => {
 						onClick={() => showReset(false)}
 						className="w-full bg-primary text-primary-foreground px-10 py-2.5 rounded-lg font-semibold hover:opacity-90 transition-opacity touch-target"
 					>
-						Back to sign in
+						{t("login.backToSignIn")}
 					</button>
 				</>
 			) : (
 				<>
 					<p className="w-full mb-3 text-sm text-muted-foreground text-center">
-						Enter your email and we will send you a link to set a new password.
+						{t("login.reset.intro")}
 					</p>
 
-					<Field id={resetEmailId} label="Email" error={resetEmailError}>
+					<Field id={resetEmailId} label={t("login.email")} error={say(resetEmailError)}>
 						<input
 							ref={resetEmailRef}
 							id={resetEmailId}
@@ -402,7 +430,7 @@ const Login = () => {
 						className="w-full bg-primary text-primary-foreground px-10 py-2.5 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity touch-target inline-flex items-center justify-center gap-2"
 					>
 						{loadingAuth && <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />}
-						{loadingAuth ? "Sending…" : "Send reset link"}
+						{loadingAuth ? t("login.reset.pending") : t("login.reset.action")}
 					</button>
 
 					<button
@@ -410,7 +438,7 @@ const Login = () => {
 						onClick={() => showReset(false)}
 						className="mt-3 text-sm font-semibold text-primary underline underline-offset-2"
 					>
-						Back to sign in
+						{t("login.backToSignIn")}
 					</button>
 				</>
 			)}
@@ -419,11 +447,11 @@ const Login = () => {
 
 	const signUpForm = (
 		<form onSubmit={handleSignUp} noValidate className="w-full flex flex-col items-center">
-			<h1 className="text-2xl font-bold mb-3">Create account</h1>
+			<h1 className="text-2xl font-bold mb-3">{t("login.signUp.title")}</h1>
 
 			{errorBanner}
 
-			<Field id={signUpNameId} label="Full name" error={signUpNameError}>
+			<Field id={signUpNameId} label={t("login.name")} error={say(signUpNameError)}>
 				<input
 					ref={signUpNameRef}
 					id={signUpNameId}
@@ -441,7 +469,7 @@ const Login = () => {
 				/>
 			</Field>
 
-			<Field id={signUpEmailId} label="Email" error={signUpEmailError}>
+			<Field id={signUpEmailId} label={t("login.email")} error={say(signUpEmailError)}>
 				<input
 					ref={signUpEmailRef}
 					id={signUpEmailId}
@@ -460,7 +488,7 @@ const Login = () => {
 				/>
 			</Field>
 
-			<Field id={signUpPassId} label="Password" error={signUpPassError}>
+			<Field id={signUpPassId} label={t("login.password")} error={say(signUpPassError)}>
 				<div className="relative">
 					<input
 						ref={signUpPassRef}
@@ -485,7 +513,7 @@ const Login = () => {
 
 			{!signUpPassError && (
 				<p id={`${signUpPassId}-hint`} className="w-full -mt-2 mb-3 text-xs text-muted-foreground">
-					At least 6 characters.
+					{t("login.passwordHint")}
 				</p>
 			)}
 
@@ -495,7 +523,7 @@ const Login = () => {
 				className="w-full bg-primary text-primary-foreground px-10 py-2.5 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity touch-target inline-flex items-center justify-center gap-2"
 			>
 				{loadingAuth && <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />}
-				{loadingAuth ? "Creating account…" : "Sign up"}
+				{loadingAuth ? t("login.signUp.pending") : t("login.signUp.action")}
 			</button>
 		</form>
 	);
@@ -504,7 +532,7 @@ const Login = () => {
 		<div
 			className="login-font min-h-screen"
 			style={{
-				background: "linear-gradient(to right, hsl(284, 33%, 92%), hsl(284, 33%, 98%))",
+				background: "linear-gradient(to right, hsl(var(--secondary)), hsl(var(--surface-raised)))",
 			}}
 		>
 			<main
@@ -526,13 +554,13 @@ const Login = () => {
 
 						{!isResetView && (
 							<p className="text-center text-sm text-muted-foreground mt-6">
-								{isSignUpView ? "Already have an account?" : "Don't have an account?"}{" "}
+								{isSignUpView ? t("login.haveAccount") : t("login.noAccount")}{" "}
 								<button
 									type="button"
 									onClick={() => switchView(!isSignUpView)}
 									className="font-semibold text-primary underline underline-offset-2"
 								>
-									{isSignUpView ? "Sign in" : "Sign up"}
+									{isSignUpView ? t("login.signIn.action") : t("login.signUp.action")}
 								</button>
 							</p>
 						)}
@@ -544,7 +572,7 @@ const Login = () => {
 						`pointer-events-none` alone would still leave them tabbable.
 					*/}
 					<div
-						className={`absolute top-0 left-0 w-1/2 h-full flex flex-col items-center justify-center px-10 transition-all duration-[600ms] ${
+						className={`absolute top-0 left-0 w-1/2 h-full flex flex-col items-center justify-center px-10 transition-[transform,opacity] duration-settle ${
 							isSignUpView ? "translate-x-full opacity-100 z-[5]" : "opacity-0 z-[1] pointer-events-none"
 						}`}
 					>
@@ -552,7 +580,7 @@ const Login = () => {
 					</div>
 
 					<div
-						className={`absolute top-0 left-0 w-1/2 h-full flex flex-col items-center justify-center px-10 transition-all duration-[600ms] z-[2] ${
+						className={`absolute top-0 left-0 w-1/2 h-full flex flex-col items-center justify-center px-10 transition-[transform,opacity] duration-settle z-[2] ${
 							isSignUpView ? "-translate-x-full opacity-0 pointer-events-none" : ""
 						}`}
 					>
@@ -560,38 +588,37 @@ const Login = () => {
 					</div>
 
 					<div
-						className={`absolute top-0 left-1/2 w-1/2 h-full overflow-hidden rounded-l-[150px] transition-all duration-[600ms] z-[100] ${
+						className={`absolute top-0 left-1/2 w-1/2 h-full overflow-hidden rounded-l-[150px] transition-[transform,border-radius] duration-settle z-[100] ${
 							isSignUpView ? "-translate-x-full rounded-l-none rounded-r-[150px]" : ""
 						}`}
 					>
 						<div className="h-full flex items-center justify-center px-8 text-center text-white bg-primary">
 							{!isSignUpView ? (
 								<div>
-									<h2 className="text-2xl font-bold mb-3">Hello, friend!</h2>
+									<h2 className="text-2xl font-bold mb-3">{t("login.aside.newTitle")}</h2>
 									<p className="text-sm mb-4 text-white/90">
-										Don't have an account? Sign up now to book bus tickets and enjoy
-										seamless travel.
+										{t("login.aside.newBody")}
 									</p>
 									<button
 										type="button"
 										onClick={() => switchView(true)}
-										className="border border-white px-10 py-2.5 rounded-lg font-semibold hover:bg-white hover:text-primary transition-colors duration-300 touch-target"
+										className="border border-white px-10 py-2.5 rounded-lg font-semibold hover:bg-white hover:text-primary transition-colors duration-enter touch-target"
 									>
-										Sign up
+										{t("login.signUp.action")}
 									</button>
 								</div>
 							) : (
 								<div>
-									<h2 className="text-2xl font-bold mb-3">Welcome back!</h2>
+									<h2 className="text-2xl font-bold mb-3">{t("login.aside.returningTitle")}</h2>
 									<p className="text-sm mb-4 text-white/90">
-										Already have an account? Sign in to continue booking your tickets.
+										{t("login.aside.returningBody")}
 									</p>
 									<button
 										type="button"
 										onClick={() => switchView(false)}
-										className="border border-white px-10 py-2.5 rounded-lg font-semibold hover:bg-white hover:text-primary transition-colors duration-300 touch-target"
+										className="border border-white px-10 py-2.5 rounded-lg font-semibold hover:bg-white hover:text-primary transition-colors duration-enter touch-target"
 									>
-										Sign in
+										{t("login.signIn.action")}
 									</button>
 								</div>
 							)}

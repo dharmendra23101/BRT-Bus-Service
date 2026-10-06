@@ -11,22 +11,36 @@
 
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
+import { setPageDescription } from "@/lib/page-meta";
+import { BRAND_NAME } from "@/constants/config";
 import { useAnnounce } from "./LiveAnnouncer";
+import { useTranslation } from "@/contexts/LocaleContext";
+import { en, type TranslationKey } from "@/domain/i18n/en";
 
-/** Human-readable page names, keyed by route. */
-const ROUTE_TITLES: Record<string, string> = {
-  "/": "Home",
-  "/plan": "Plan your journey",
-  "/routes": "Route explorer",
-  "/nearby": "Nearby places",
-  "/map": "Live bus tracking",
-  "/timetable": "Timetable",
-  "/fares": "Fares",
-  "/contact": "Contact",
-  "/help": "Passenger help",
-  "/login": "Sign in",
-  "/dashboard": "Dashboard",
-  "/driver": "Driver live tracking",
+/**
+ * Page names, keyed by route.
+ *
+ * Named once and read twice, because the two readers want different things.
+ * The tab title and the meta description are what a SEARCH ENGINE indexes and
+ * stay English; the announcement is spoken to the person using the page and
+ * follows the interface. Localising a tab title is a decision about search
+ * results rather than about translation, and it is not this stage's to make.
+ */
+const ROUTE_TITLES: Record<string, TranslationKey> = {
+  "/": "page.home",
+  "/plan": "page.plan",
+  "/routes": "page.routes",
+  "/nearby": "page.nearby",
+  "/map": "page.map",
+  "/timetable": "page.timetable",
+  "/fares": "page.fares",
+  "/contact": "page.contact",
+  "/help": "page.help",
+  "/about": "page.about",
+  "/search": "page.search",
+  "/login": "page.login",
+  "/dashboard": "page.dashboard",
+  "/driver": "page.driver",
 };
 
 /** Search-result summaries, keyed by the same routes. */
@@ -40,31 +54,28 @@ const ROUTE_DESCRIPTIONS: Record<string, string> = {
   "/fares": "Check the official BRTS fare between any two stops, or read the full published fare chart.",
   "/contact": "Reach the BRT Bus Service team for support, collaboration or queries.",
   "/help": "How journeys, fares, tickets, live tracking and arrival alerts work on the BRT Bus Service.",
+  "/about": "What Bus Rapid Transit is, the Nava Raipur service as its operator publishes it, and what this site can and cannot tell you.",
+  "/search": "Find any stop, route or place on the Nava Raipur BRT corridor in one search.",
   "/login": "Sign in to book a ticket and see your journey history.",
   "/dashboard": "Your tickets, journey history and account.",
   "/driver": "Share your bus position with passengers while you are on shift.",
 };
 
-const titleFor = (pathname: string): string => ROUTE_TITLES[pathname] ?? "Page";
+/**
+ * Routes whose metadata belongs to the page rather than to this table.
+ *
+ * A place detail page's title is the place's name, which lives in a dataset
+ * this eagerly-loaded component must not import. Those routes are skipped
+ * here entirely, so exactly one thing writes the title and there is no race
+ * between a parent effect and a child one.
+ */
+const PAGE_OWNED = [/^\/nearby\/[a-z0-9-]+$/];
 
-const setDescription = (content: string | undefined) => {
-  const existing = document.head.querySelector('meta[name="description"]');
+const ownsItsMetadata = (pathname: string): boolean =>
+  PAGE_OWNED.some((route) => route.test(pathname));
 
-  if (!content) {
-    existing?.remove();
-    return;
-  }
-
-  if (existing) {
-    existing.setAttribute("content", content);
-    return;
-  }
-
-  const tag = document.createElement("meta");
-  tag.setAttribute("name", "description");
-  tag.setAttribute("content", content);
-  document.head.appendChild(tag);
-};
+const titleFor = (pathname: string): TranslationKey =>
+  ROUTE_TITLES[pathname] ?? "page.unknown";
 
 /**
  * Points every search-parameter variant of a page at one address.
@@ -92,13 +103,9 @@ const setCanonical = (pathname: string) => {
 export const RouteChangeHandler = () => {
   const { pathname } = useLocation();
   const announce = useAnnounce();
+  const { t } = useTranslation();
 
   useEffect(() => {
-    const title = titleFor(pathname);
-
-    document.title = `${title} · BRT Bus Service`;
-
-    setDescription(ROUTE_DESCRIPTIONS[pathname]);
     setCanonical(pathname);
 
     // "auto" rather than "smooth": a page change should be instant, and
@@ -106,8 +113,16 @@ export const RouteChangeHandler = () => {
     // are asking to avoid.
     window.scrollTo({ top: 0, behavior: "auto" });
 
-    announce(`${title} page loaded`);
-  }, [pathname, announce]);
+    // Scroll and canonical apply everywhere; the naming does not, because a
+    // page-owned route would only have it overwritten a moment later.
+    if (ownsItsMetadata(pathname)) return;
+
+    const title = titleFor(pathname);
+
+    document.title = `${en[title]} · ${BRAND_NAME}`;
+    setPageDescription(ROUTE_DESCRIPTIONS[pathname]);
+    announce(t("route.loaded", { page: t(title) }));
+  }, [pathname, announce, t]);
 
   return null;
 };

@@ -11,19 +11,18 @@ import {
 import { X } from "lucide-react";
 import { NOTIFICATION_RULES } from "@/constants/config";
 import { useAnnounce } from "@/components/a11y/LiveAnnouncer";
-import { createAlertThrottle } from "@/services/notificationService";
+import { useTranslation } from "@/contexts/LocaleContext";
+import { createAlertThrottle } from "@/domain/alerts/arrival";
 
 interface ArrivalNotification {
   id: string;
   routeId: string;
   stop: string;
-  /** Minutes until the bus reaches the stop. */
-  eta: number;
   timestamp: number;
 }
 
 interface NotificationContextValue {
-  notify: (routeId: string, stop: string, eta: number) => void;
+  notify: (routeId: string, stop: string) => void;
 }
 
 const NotificationContext = createContext<NotificationContextValue>({
@@ -42,22 +41,22 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   throttleRef.current ??= createAlertThrottle();
 
   const notify = useCallback(
-    (routeId: string, stop: string, eta: number) => {
+    (routeId: string, stop: string) => {
       const now = Date.now();
 
       if (!throttleRef.current!.claim(routeId, stop, now)) return;
 
       setNotifications((previous) => [
         ...previous,
-        { id: `notif-${now}`, routeId, stop, eta, timestamp: now },
+        { id: `notif-${now}`, routeId, stop, timestamp: now },
       ]);
 
       // Spoken to screen-reader users, who cannot see the popup appear.
-      announce(`Bus ${routeId} arriving at ${stop} in about ${eta} minutes.`);
+      announce(`Bus ${routeId} is reporting its position near ${stop}.`);
 
       if ("Notification" in window && Notification.permission === "granted") {
-        new Notification("Bus Arrival Alert", {
-          body: `Bus ${routeId} arriving at ${stop} in ~${eta} minutes`,
+        new Notification("Bus nearby", {
+          body: `Bus ${routeId} is reporting its position near ${stop}`,
           icon: NOTIFICATION_RULES.ICON_URL,
         });
       }
@@ -81,6 +80,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       setNotifications((previous) => previous.filter((n) => n.id !== id)),
     []
   );
+
+  const { t } = useTranslation();
 
   const value = useMemo<NotificationContextValue>(() => ({ notify }), [notify]);
 
@@ -109,13 +110,13 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                   Bus {notification.routeId}
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Arriving at{" "}
+                  Reporting near{" "}
                   <span className="font-medium text-foreground">
                     {notification.stop}
                   </span>
                 </p>
-                <p className="text-xs text-primary font-semibold mt-0.5">
-                  In approx {notification.eta} minutes
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {t("notification.positionOnly")}
                 </p>
               </div>
 
@@ -132,7 +133,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                 tabIndex={-1}
               >
                 <X className="w-4 h-4" />
-                <span className="sr-only">Dismiss notification</span>
+                <span className="sr-only">{t("notification.dismiss")}</span>
               </button>
             </div>
           </div>

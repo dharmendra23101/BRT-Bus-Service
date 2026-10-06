@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import NearbyPlaces from "@/pages/NearbyPlaces";
+import { PLACES } from "@/domain/places";
 import { renderWithProviders, screen, within } from "../helpers/render";
 
 vi.mock("@/services/userService", async () => {
@@ -7,27 +8,26 @@ vi.mock("@/services/userService", async () => {
   return helper.userServiceMock();
 });
 
+/** A card, found by its own heading rather than by any stray matching text. */
 const cardFor = (name: string): HTMLElement =>
-  screen.getByText(name).closest("div.brt-card")!;
+  screen.getByRole("heading", { name }).closest("li")!;
 
 describe("linking a place to the rest of the site", () => {
-  it("plans a journey to the nearest stop", async () => {
+  it("plans a journey to the nearest stop", () => {
     renderWithProviders(<NearbyPlaces />, { route: "/nearby" });
 
-    const card = cardFor("Miraj Cinema");
-
     expect(
-      within(card).getByRole("link", { name: /plan journey/i })
+      within(cardFor("Miraj Cinema")).getByRole("link", { name: /plan journey/i })
     ).toHaveAttribute("href", "/plan?to=CBD");
   });
 
   it("escapes a stop name that contains spaces", () => {
     renderWithProviders(<NearbyPlaces />, { route: "/nearby" });
 
-    const card = cardFor("Balco Medical Center");
-
     expect(
-      within(card).getByRole("link", { name: /plan journey/i })
+      within(cardFor("Balco Medical Center")).getByRole("link", {
+        name: /plan journey/i,
+      })
     ).toHaveAttribute("href", "/plan?to=Balco%20Medical%20Center");
   });
 
@@ -35,7 +35,7 @@ describe("linking a place to the rest of the site", () => {
     renderWithProviders(<NearbyPlaces />, { route: "/nearby" });
 
     expect(
-      within(cardFor("Jungle Safari")).getByRole("link", { name: "Route" })
+      within(cardFor("Nandanvan Jungle Safari")).getByRole("link", { name: "Route" })
     ).toHaveAttribute("href", "/routes?route=feeder-ext-1");
 
     expect(
@@ -43,10 +43,18 @@ describe("linking a place to the rest of the site", () => {
     ).toHaveAttribute("href", "/routes?route=trunk");
   });
 
+  it("opens a page of its own for every place", () => {
+    renderWithProviders(<NearbyPlaces />, { route: "/nearby" });
+
+    expect(
+      within(cardFor("Miraj Cinema")).getByRole("link", { name: "Miraj Cinema" })
+    ).toHaveAttribute("href", "/nearby/miraj-cinema");
+  });
+
   it("does not offer a journey to a stop with no departures", () => {
     renderWithProviders(<NearbyPlaces />, { route: "/nearby" });
 
-    const card = cardFor("Jungle Safari");
+    const card = cardFor("Tribal Museum");
 
     expect(
       within(card).queryByRole("link", { name: /plan journey/i })
@@ -71,8 +79,30 @@ describe("linking a place to the rest of the site", () => {
     ).toBeInTheDocument();
 
     expect(
-      within(cardFor("Jungle Safari")).queryByText("Official listing")
+      within(cardFor("Tribal Museum")).queryByText("Official listing")
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("what a card says before you open it", () => {
+  it("describes the place rather than only naming it", () => {
+    renderWithProviders(<NearbyPlaces />, { route: "/nearby" });
+
+    expect(
+      within(cardFor("Purkhouti Muktangan")).getByText(/tribal art/i)
+    ).toBeInTheDocument();
+  });
+
+  /*
+    No photograph of any of these is available under a licence we can use, and
+    a broken frame or someone else's picture are both worse than a glyph.
+  */
+  it("says so when there is no photograph, rather than showing a gap", () => {
+    renderWithProviders(<NearbyPlaces />, { route: "/nearby" });
+
+    expect(
+      within(cardFor("Miraj Cinema")).getByText(/no photograph available/i)
+    ).toBeInTheDocument();
   });
 });
 
@@ -82,24 +112,47 @@ describe("finding a place", () => {
 
     await user.type(screen.getByLabelText("Find a place"), "jungle");
 
-    expect(screen.getByText("Jungle Safari")).toBeInTheDocument();
-    expect(screen.queryByText("Miraj Cinema")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Nandanvan Jungle Safari" })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Miraj Cinema" })
+    ).not.toBeInTheDocument();
   });
 
   it("narrows by category", async () => {
     const { user } = renderWithProviders(<NearbyPlaces />, { route: "/nearby" });
 
-    await user.click(screen.getByRole("button", { name: "Hospitals" }));
+    await user.click(screen.getByRole("button", { name: "Healthcare" }));
 
-    expect(screen.getByText("Satya Sai Hospital")).toBeInTheDocument();
-    expect(screen.queryByText("Tribal Museum")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Sadbhawna Hospital" })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Tribal Museum" })
+    ).not.toBeInTheDocument();
+  });
+
+  /*
+    The incumbent's own filter cannot reach a third of its catalogue: its
+    cards are labelled Schools, Higher Education, Recreation, Hospitals and
+    Cinema while the filter offers only Educations, Entertainments and
+    Healthcare, so Recreation is unreachable. One taxonomy, used in both.
+  */
+  it("offers a filter for every category a card can carry", () => {
+    renderWithProviders(<NearbyPlaces />, { route: "/nearby" });
+
+    // Derived from the data, so a new category without a filter fails here.
+    for (const category of new Set(PLACES.map((place) => place.category))) {
+      expect(screen.getByRole("button", { name: category })).toBeInTheDocument();
+    }
   });
 
   it("combines a category with a name", async () => {
     const { user } = renderWithProviders(<NearbyPlaces />, { route: "/nearby" });
 
     await user.click(screen.getByRole("button", { name: "Education" }));
-    await user.type(screen.getByLabelText("Find a place"), "hospital");
+    await user.type(screen.getByLabelText("Find a place"), "cinema");
 
     expect(screen.getByText("No places match your search")).toBeInTheDocument();
   });
@@ -107,12 +160,14 @@ describe("finding a place", () => {
   it("clears both filters at once", async () => {
     const { user } = renderWithProviders(<NearbyPlaces />, { route: "/nearby" });
 
-    await user.click(screen.getByRole("button", { name: "Parks" }));
+    await user.click(screen.getByRole("button", { name: "Recreation" }));
     await user.type(screen.getByLabelText("Find a place"), "zzz");
 
     await user.click(screen.getByRole("button", { name: /clear filters/i }));
 
-    expect(screen.getByText("Miraj Cinema")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Miraj Cinema" })
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "All" })).toHaveAttribute(
       "aria-pressed",
       "true"

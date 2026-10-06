@@ -14,6 +14,26 @@ export default {
       },
     },
     extend: {
+      /*
+        The motion tokens, reachable from a class name.
+
+        Tailwind's own `duration-*` scale emits literal milliseconds, so it
+        cannot reference `--motion-duration-*`. That left two parallel systems:
+        the stylesheet was on tokens, the component layer was on hardcoded
+        utilities, and they drifted - the app shipped 300ms, 500ms and 700ms
+        transitions that matched no token at all. These make the tokens the
+        only way to spell a duration, and `motion.test.tsx` now fails a raw one.
+      */
+      transitionDuration: {
+        state: "var(--motion-duration-state)",
+        enter: "var(--motion-duration-enter)",
+        settle: "var(--motion-duration-settle)",
+      },
+
+      transitionTimingFunction: {
+        motion: "var(--motion-ease)",
+      },
+
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -23,7 +43,10 @@ export default {
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
+          strong: "hsl(var(--primary-strong))",
+          deep: "hsl(var(--primary-deep))",
         },
+        "surface-raised": "hsl(var(--surface-raised))",
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
           foreground: "hsl(var(--secondary-foreground))",
